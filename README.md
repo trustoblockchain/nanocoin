@@ -392,7 +392,7 @@ data Transaction = Transaction
 ```
 
 *Transaction Headers* must be signed with the private key corresponding to the 
-`publicKey` field of  `Transfer` transaction. The transaction's signature
+`senderKey` field of  `Transfer` transaction. The transaction's signature
 is verified using the `ECDSA.verify` function in `cryptonite`.
 
 **Transaction Headers**:
