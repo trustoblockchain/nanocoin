@@ -49,7 +49,7 @@ enabled. The simplest way to do this on Unix-like systems is:
 $ sudo ifconfig lo multicast
 ```
 
-Otherwise, the program with fail with `addMembership: failed (Unknown error -1)`
+Otherwise, the program will fail with `addMembership: failed (Unknown error -1)`
 error from the `Multicast` module when attempting to add the node to the
 multicast group. 
 
