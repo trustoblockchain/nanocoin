@@ -136,11 +136,11 @@ implementation.
 
 ### Hash Functions
 
-Hash functions are pure, *one-way* functions for which every input a unique,
-fixed-length output is produced, revealing no information about the input. *Strong* 
-hash functions produce output that can be thought of as a digital fingerprint of the 
-input data. The most important thing to note is that good hash functions obfuscate the original 
-input but the most minor changes in the input data result in dramatically different outputs.
+Hash functions are pure, *one-way* functions which, for every input, produce a unique
+fixed-length output which reveals no information about the input. *Strong* hash functions
+produce output that can be thought of as a digital fingerprint of the input data. The most
+important thing to note is that good hash functions obfuscate the original input, and the
+most minor change in the input results in a dramatically different output.
 
 Example:
 ```haskell
@@ -161,18 +161,17 @@ they can each share with each other the hash of the data and compare a much smal
 
 **Collisions:**
 
-Since hash algorithms produce a fixed sized output, i.e. there is a finite number of outputs and 
-an infinite number of inputs, there is a chance that two inputs produce the same output. However, 
-the chance of collisions for modern popular hashing algorithms are negligible, and when 
-*collision attacks* become viable attack vectors, academia and industry are **usually** prepared.
-the former with a more secure hashing algorithm and the latter with the adoption of the new algorithm.
+Since hash algorithms produce a fixed sized output, i.e. an infinite number of inputs map onto a finite number
+of outputs, there is a chance that two inputs produce the same output. However, the chance of collisions for
+modern popular hashing algorithms are negligible, and when *collision attacks* become viable attack vectors,
+academia and industry are **usually** prepared.  the former with a more secure hashing algorithm and the latter
+with the adoption of the new algorithm.
 
 #### SHA3_256 
 
 Sha3_256 (Secure Hash Algorithm 3) is one of the more popular hashing algorithms, in which every 
-input is converted into a 256 bit output. It's implementation is very complex, but yields a fast and
-secure algorithm with which collisions will not feasibly happen given todays
-computing power. 
+input is converted into a 256 bit output. Its implementation is very complex, but yields a fast and
+secure algorithm with which collisions will not feasibly happen given todays computing power.
 
 ### Finite Fields
 
