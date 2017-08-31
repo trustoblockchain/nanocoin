@@ -32,7 +32,7 @@ $ nanocoin
 Running `nanocoin` will spin up a Node with an RPC server running on `localhost:3000`
 and a P2P server communicating with basic UDP Multicast on port `8001`.
 
-You can specify which port th run the RPC server on, and from which directory to load
+You can specify which port to run the RPC server on, and from which directory to load
 a node's public/private ECC key pair. If you do not supply a `KEYS_DIR`, the node will
 generate a random key pair with which to issue transactions and mine block.
 
@@ -104,7 +104,7 @@ both a command and query entry points. Simply type in
 
 ### TODO:
 
-- [ ] Moar Docs (explain the crypto math a bit better, serialization)
+- [ ] More Docs (explain the crypto math a bit better, serialization)
 - [ ] Add a test module
 - [ ] Add persistence of keys so address doesn't change every time a node is
   booted.
