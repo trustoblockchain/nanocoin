@@ -78,24 +78,27 @@ rpcServer nodeState = do
           -- Attempt to mine block with the valid transactions
           putText "[2] Constructing new block..."
 
-          let privKey = snd $ nodeKeys nodeState
+          let keys = nodeKeys nodeState
           ledger <- getLedger nodeState
 
-          unless (null validTxs) $ do
-            block <- B.mineBlock prevBlock privKey validTxs
-            case B.validateAndApplyBlock ledger prevBlock block of
-              Left err -> text $ show err
-              Right (_, []) -> do
-                putText $ "Generated block with hash:\n\t"
-                  <> decodeUtf8 (B.hashBlock block)
-                -- Broadcast block message to network
-                liftIO $ p2pSender $ Msg.BlockMsg block
-                -- Display the new block
-                json block
-              Right (_, invalidTxErrs') -> do
-                -- This shouldn't happen
-                putText ("Could not mine block, Invalid Transactions:" :: Text)
-                json $ Map.fromList $ zip ([1..] :: [Int]) invalidTxErrs'
+          if not (null validTxs)
+            then do
+              block <- B.mineBlock prevBlock keys validTxs
+              case B.validateAndApplyBlock ledger prevBlock block of
+                Left err -> text $ show err
+                Right (_, []) -> do
+                  putText $ "Generated block with hash:\n\t"
+                    <> decodeUtf8 (B.hashBlock block)
+                  -- Broadcast block message to network
+                  liftIO $ p2pSender $ Msg.BlockMsg block
+                  -- Display the new block
+                  json block
+                Right (_, invalidTxErrs') -> do
+                  -- This shouldn't happen
+                  putText ("Could not mine block, Invalid Transactions:" :: Text)
+                  json $ Map.fromList $ zip ([1..] :: [Int]) invalidTxErrs'
+             else
+               text "There are no valid transactions in the mempool"
 
     get "/transfer/:toAddr/:amount" $ do
       toAddr' <- param "toAddr"

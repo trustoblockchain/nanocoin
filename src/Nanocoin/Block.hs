@@ -23,7 +23,7 @@ module Nanocoin.Block (
 
   -- ** Consensus
   proofOfWork,
-  checkProofOfWork,
+  validateProofOfWork,
   mineBlock,
   getLatestBlock,
 
@@ -125,7 +125,9 @@ data InvalidBlock
   | InvalidBlockHash
   | InvalidBlockMerkleRoot Text
   | InvalidBlockNumTxs
+  | InvalidBlockNoReward
   | InvalidBlockTx T.InvalidTx
+  | InvalidRewardTx Int Int
   | InvalidPrevBlockHash
   | InvalidFirstBlock
   | InvalidBlockTxs [T.InvalidTx]
@@ -153,10 +155,12 @@ validateBlock
 validateBlock ledger prevBlock block
   | index block /= index prevBlock + 1 = Left $ InvalidBlockIndex (index block)
   | hashBlock prevBlock /= previousHash (header block) = Left InvalidPrevBlockHash
-  | not (checkProofOfWork block) = Left InvalidBlockHash
+  | not (validateProofOfWork block) = Left InvalidBlockHash
   | null (transactions block) = Left InvalidBlockNumTxs
   | mRoot /= mRoot' = Left $ InvalidBlockMerkleRoot $ toS mRoot'
   | otherwise = do
+      -- Validate Reward Transaction
+      validateBlockReward block
       -- Verify signature of block
       verifyBlockSignature block
       -- Validate all transactions w/ respect to world state
@@ -167,6 +171,25 @@ validateBlock ledger prevBlock block
     txHashes = map T.hashTransaction blockTxs
     mRoot  = merkleRoot $ header block      -- given root
     mRoot' = mtHash $ mkMerkleTree txHashes -- constr root
+
+-- | Validates a block with a reward transaction at the end
+-- 1) Reward TX must be the last transaction
+-- 2) There must be only 1 reward transaction
+-- 3) The amount in the reward transaction must be dependent on block idx
+-- 4) The public key of the Reward TX must match the block origin
+validateBlockReward
+  :: Block
+  -> Either InvalidBlock ()
+validateBlockReward block =
+  case lastMay (transactions block) of
+    Nothing -> Left InvalidBlockNumTxs
+    Just tx -> case T.header tx of
+      T.RewardHeader (T.Reward mk amnt) -> do
+        let rewardAmnt = calcReward (index block)
+        let blockOrigin = origin $ header block
+        unless (rewardAmnt == amnt && mk == blockOrigin) $
+          Left $ InvalidRewardTx rewardAmnt amnt
+      otherwise -> Left InvalidBlockNoReward
 
 validateAndApplyBlock
   :: Ledger
@@ -192,32 +215,39 @@ applyBlock ledger = T.applyTransactions ledger . transactions
 mineBlock
   :: MonadIO m
   => Block          -- ^ Previous Block in chain
-  -> Key.PrivateKey -- ^ Miner's private key
+  -> Key.KeyPair    -- ^ Miner's ECDSA key pair
   -> [Transaction]  -- ^ List of transactions
   -> m Block
-mineBlock prevBlock privKey txs = do
-    signature' <- liftIO $ -- Sign the serialized block header
+mineBlock prevBlock keys@(pubKey,privKey) txs' = do
+    -- Generate reward transaction
+    rewardTx <- liftIO $
+      T.rewardTransaction keys (calcReward index')
+
+    -- Create the block header
+    let blockTxs = txs' ++ [rewardTx]
+    let blockHeader = mkBlockHeader blockTxs
+
+    -- Sign the serialized block header
+    signature' <- liftIO $
       Key.sign privKey (S.encode blockHeader)
     return Block
       { index        = index'
       , header       = blockHeader
-      , transactions = txs
+      , transactions = blockTxs
       , signature    = S.encode signature'
       }
   where
-    txHashes = map T.hashTransaction txs
-
-    initBlockHeader = BlockHeader
-      { origin       = origin'
-      , previousHash = prevHash
-      , merkleRoot   = mtHash (mkMerkleTree txHashes)
-      , nonce        = 0
-      }
-
     index'      = index prevBlock + 1
     prevHash    = hashBlock prevBlock
     origin'     = Key.toPublic privKey
-    blockHeader = proofOfWork index' initBlockHeader
+
+    mkBlockHeader txs = proofOfWork index' $
+      let txHashes = map T.hashTransaction txs
+      in BlockHeader { origin       = origin'
+                     , previousHash = prevHash
+                     , merkleRoot   = mtHash (mkMerkleTree txHashes)
+                     , nonce        = 0
+                     }
 
     now :: IO Integer
     now = round `fmap` getPOSIXTime
@@ -242,12 +272,16 @@ proofOfWork idx blockHeader = blockHeader { nonce = calcNonce 0 }
 calcDifficulty :: Int -> Int
 calcDifficulty = round . logBase (2 :: Float) . fromIntegral
 
-checkProofOfWork :: Block -> Bool
-checkProofOfWork block =
+validateProofOfWork :: Block -> Bool
+validateProofOfWork block =
     BS.isPrefixOf prefix $ hashBlock block
   where
     difficulty = calcDifficulty $ index block
     prefix = toS $ replicate difficulty '0'
+
+-- | Calculate the reward (difficulty x 100)
+calcReward :: Int -> Int
+calcReward = (*) 100 . calcDifficulty
 
 -------------------------------------------------------------------------------
 -- Serialization
