@@ -176,6 +176,7 @@ validateBlock ledger prevBlock block
 -- 1) Reward TX must be the last transaction
 -- 2) There must be only 1 reward transaction
 -- 3) The amount in the reward transaction must be dependent on block idx
+-- 4) The public key of the Reward TX must match the block origin
 validateBlockReward
   :: Block
   -> Either InvalidBlock ()
@@ -185,7 +186,8 @@ validateBlockReward block =
     Just tx -> case T.header tx of
       T.RewardHeader (T.Reward mk amnt) -> do
         let rewardAmnt = calcReward (index block)
-        unless (rewardAmnt == amnt) $
+        let blockOrigin = origin $ header block
+        unless (rewardAmnt == amnt && mk == blockOrigin) $
           Left $ InvalidRewardTx rewardAmnt amnt
       otherwise -> Left InvalidBlockNoReward
 
