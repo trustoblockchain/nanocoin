@@ -6,6 +6,8 @@ module Nanocoin.Ledger (
 
   transfer,
   TransferError,
+
+  reward,
 ) where
 
 import Protolude
@@ -87,3 +89,11 @@ transfer fromAddr toAddr amount ledger = do
 
   Right $ addBalance toAddr amount
     $ addBalance fromAddr (-amount) ledger'
+
+reward
+  :: Address
+  -> Balance
+  -> Ledger
+  -> Ledger
+reward minerAddr amnt ledger =
+  addBalance minerAddr amnt $ addAddress minerAddr ledger
