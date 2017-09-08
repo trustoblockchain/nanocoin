@@ -173,23 +173,31 @@ validateBlock ledger prevBlock block
     mRoot' = mtHash $ mkMerkleTree txHashes -- constr root
 
 -- | Validates a block with a reward transaction at the end
--- 1) Reward TX must be the last transaction
--- 2) There must be only 1 reward transaction
+-- 1) There must be only 1 reward transaction
+-- 2) Reward TX must be the last transaction
 -- 3) The amount in the reward transaction must be dependent on block idx
 -- 4) The public key of the Reward TX must match the block origin
 validateBlockReward
   :: Block
   -> Either InvalidBlock ()
-validateBlockReward block =
-  case lastMay (transactions block) of
-    Nothing -> Left InvalidBlockNumTxs
-    Just tx -> case T.header tx of
-      T.RewardHeader (T.Reward mk amnt) -> do
-        let rewardAmnt = calcReward (index block)
-        let blockOrigin = origin $ header block
-        unless (rewardAmnt == amnt && mk == blockOrigin) $
-          Left $ InvalidRewardTx rewardAmnt amnt
-      otherwise -> Left InvalidBlockNoReward
+validateBlockReward block = go $ transactions block
+  where
+    -- Walk the list of transactions, assuring only 1
+    -- Reward transaction and enforcing the other predicates
+    go [] = Left InvalidBlockNumTxs
+    go [tx] =
+      case T.header tx of
+        T.RewardHeader (T.Reward mk amnt) -> do
+          let rewardAmnt = calcReward (index block)
+          let blockOrigin = origin $ header block
+          unless (rewardAmnt == amnt && mk == blockOrigin) $
+            Left $ InvalidRewardTx rewardAmnt amnt
+        otherwise -> Left InvalidBlockNoReward
+    go (tx1:tx2:txs) =
+      case T.header tx1 of
+        T.RewardHeader (T.Reward mk amnt) ->
+          Left $ InvalidRewardTx amnt amnt
+        otherwise -> go (tx2:txs)
 
 validateAndApplyBlock
   :: Ledger
