@@ -7,6 +7,8 @@ in dispelling the air of mystery about what a cryptocurrency is. The project att
 to present the necessary cryptographic components and distributed systems knowledge
 necessary to implement a cryptocurrency.
 
+[**Video of Presentation at Boston Haskell**](https://www.youtube.com/watch?v=wjyiOXRuUdo)
+
 **Project goals**:
 
 * Well-documented.
