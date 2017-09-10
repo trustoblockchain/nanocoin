@@ -12,6 +12,7 @@ module Nanocoin.Network.Node (
   setBlockChain,
 
   applyBlock,
+  mineBlock,
   getLatestBlock,
 
   getLedger,
@@ -27,34 +28,43 @@ import Protolude
 
 import Control.Concurrent.MVar (MVar)
 import Data.Aeson (ToJSON(..))
+import qualified Data.Map as Map
 import qualified Data.Text as T
 
 import Address (Address)
+import Nanocoin.Block (Block, Blockchain)
+import Nanocoin.MemPool (MemPool)
 
 import qualified Address
 import qualified Nanocoin.Block as Block
 import qualified Nanocoin.Transaction as Tx
 import qualified Nanocoin.Ledger as Ledger
-import qualified Nanocoin.MemPool as MemPool
+import qualified Nanocoin.MemPool as MP
 import qualified Nanocoin.Network.Message as Msg
 import qualified Nanocoin.Network.Multicast as M
 import qualified Nanocoin.Network.Peer as Peer
 
 import qualified Key
 
+data NodeStateError
+  = NoGenesisBlock
+  | NoValidTxsInMemPool
+  | InternalError Text
+  deriving (Show)
+
 data NodeState = NodeState
   { nodeConfig   :: Peer.Peer
-  , nodeChain    :: MVar Block.Blockchain
+  , nodeChain    :: MVar Blockchain
   , nodeKeys     :: Key.KeyPair
   , nodeSender   :: Msg.MsgSender
   , nodeReceiver :: Msg.MsgReceiver
   , nodeLedger   :: MVar Ledger.Ledger
-  , nodeMemPool  :: MVar MemPool.MemPool
+  , nodeMemPool  :: MVar MemPool
   }
 
 initNodeState
   :: Peer.Peer
-  -> Block.Block
+  -> Block
   -> Key.KeyPair
   -> IO NodeState
 initNodeState self genesisBlock keys = do
@@ -88,19 +98,19 @@ modifyNodeState_ nodeState f = liftIO . modifyMVar_ (f nodeState)
 modifyBlockChain_
   :: MonadIO m
   => NodeState
-  -> (Block.Blockchain -> Block.Blockchain)
+  -> (Blockchain -> Block.Blockchain)
   -> m ()
 modifyBlockChain_ nodeState f = modifyNodeState_ nodeState nodeChain (pure . f)
 
 -- | Warning: Unsafe replace chain. Use 'setBlockChain' to safely update chain
-setBlockChain :: MonadIO m => NodeState -> Block.Blockchain -> m ()
+setBlockChain :: MonadIO m => NodeState -> Blockchain -> m ()
 setBlockChain nodeState chain = modifyBlockChain_ nodeState (const chain)
 
 applyBlock
   :: MonadIO m
   => NodeState
-  -> Block.Block
-  -> Block.Block
+  -> Block
+  -> Block
   -> m ()
 applyBlock nodeState prevBlock  block = do
   ledger <- getLedger nodeState
@@ -115,12 +125,57 @@ applyBlock nodeState prevBlock  block = do
           purgeMemPool nodeState
           -- Remove transactions in block from memPool
           let blockTxs = Block.transactions block
-          modifyMemPool_ nodeState $ MemPool.removeTransactions blockTxs
+          modifyMemPool_ nodeState $ MP.removeTransactions blockTxs
           -- Update ledger to new ledger state
           setLedger nodeState ledger'
       | otherwise -> putText $
           (<>) "applyBlock:\n" $
             T.unlines $ map ((<>) "\t" . show) itxs
+
+mineBlock
+  :: MonadIO m
+  => NodeState
+  -> m (Either NodeStateError Block)
+mineBlock nodeState = do
+  -- Attempt to mine block
+  mPrevBlock <- getLatestBlock nodeState
+  case mPrevBlock of
+    Nothing -> pure $ Left NoGenesisBlock
+    Just prevBlock -> do
+      putText "[0] Attempting to mine a block..."
+
+      -- Validate and discard invalid transactions
+      putText "[1] Discarding Invalid Transactions..."
+      invalidTxErrs <- purgeMemPool nodeState
+      mapM_ (putText . show) invalidTxErrs
+      validTxs <- MP.unMemPool <$> getMemPool nodeState
+
+      -- Attempt to mine block with the valid transactions
+      putText "[2] Constructing new block..."
+
+      let keys = nodeKeys nodeState
+      ledger <- getLedger nodeState
+
+      if not (null validTxs)
+        then do
+          block <- Block.mineBlock prevBlock keys validTxs
+          case Block.validateAndApplyBlock ledger prevBlock block of
+            Left err -> pure $ Left $ InternalError (show err)
+            Right (_, invalidTxErrs')
+              | null invalidTxErrs' -> do
+                  let blockHashText = decodeUtf8 (Block.hashBlock block)
+                  putText $ "Generated block with hash:\n\t" <> blockHashText
+                  -- Broadcast block message to network
+                  let p2pSender = nodeSender nodeState
+                  liftIO $ p2pSender (Msg.BlockMsg block)
+                  pure $ Right block
+              | otherwise -> panic $ -- This shouldn't happen, fail hard
+                  T.intercalate "\n\t *" $
+                    "Mined a block with invalid transactions:" :
+                    map show invalidTxErrs'
+         else
+           pure $ Left NoValidTxsInMemPool
+
 
 setLedger :: MonadIO m => NodeState -> Ledger.Ledger -> m ()
 setLedger nodeState ledger =
@@ -130,7 +185,7 @@ setLedger nodeState ledger =
 modifyMemPool_
   :: MonadIO m
   => NodeState
-  -> (MemPool.MemPool -> MemPool.MemPool)
+  -> (MemPool -> MemPool)
   -> m ()
 modifyMemPool_ nodeState f =
   modifyNodeState_ nodeState nodeMemPool (pure . f)
@@ -142,10 +197,10 @@ purgeMemPool
   -> m [Tx.InvalidTx]
 purgeMemPool nodeState = do
   ledger <- getLedger nodeState
-  txs <- MemPool.unMemPool <$> getMemPool nodeState
+  txs <- MP.unMemPool <$> getMemPool nodeState
   let (ledger', invalidTxErrs) = Tx.applyTransactions ledger txs
   let invalidTxs = map (\(Tx.InvalidTx tx _) -> tx) invalidTxErrs
-  modifyMemPool_ nodeState $ MemPool.removeTransactions invalidTxs
+  modifyMemPool_ nodeState $ MP.removeTransactions invalidTxs
   return invalidTxErrs
 
 resetMemPool
@@ -163,16 +218,16 @@ resetMemPool nodeState = do
 getNodeAddress :: NodeState -> Address
 getNodeAddress = Address.deriveAddress . fst . nodeKeys
 
-getBlockChain :: MonadIO m => NodeState -> m Block.Blockchain
+getBlockChain :: MonadIO m => NodeState -> m Blockchain
 getBlockChain = liftIO . readMVar . nodeChain
 
-getLatestBlock :: MonadIO m => NodeState -> m (Maybe Block.Block)
+getLatestBlock :: MonadIO m => NodeState -> m (Maybe Block)
 getLatestBlock = fmap head . getBlockChain
 
 getLedger :: MonadIO m => NodeState -> m Ledger.Ledger
 getLedger = readMVar' . nodeLedger
 
-getMemPool :: MonadIO m => NodeState -> m MemPool.MemPool
+getMemPool :: MonadIO m => NodeState -> m MemPool
 getMemPool = readMVar' . nodeMemPool
 
 -------------------------------------------------------------------------------
