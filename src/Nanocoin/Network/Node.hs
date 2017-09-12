@@ -24,7 +24,9 @@ module Nanocoin.Network.Node (
 
 ) where
 
-import Protolude
+import Protolude hiding (print, putText)
+import Logger
+import qualified System.Logger as Logger
 
 import Control.Concurrent.MVar (MVar)
 import Data.Aeson (ToJSON(..))
@@ -107,7 +109,7 @@ setBlockChain :: MonadIO m => NodeState -> Blockchain -> m ()
 setBlockChain nodeState chain = modifyBlockChain_ nodeState (const chain)
 
 applyBlock
-  :: MonadIO m
+  :: (MonadIO m, MonadLogger m)
   => NodeState
   -> Block
   -> Block
@@ -133,7 +135,7 @@ applyBlock nodeState prevBlock  block = do
             T.unlines $ map ((<>) "\t" . show) itxs
 
 mineBlock
-  :: MonadIO m
+  :: (MonadIO m, MonadLogger m)
   => NodeState
   -> m (Either NodeStateError Block)
 mineBlock nodeState = do
@@ -177,10 +179,10 @@ mineBlock nodeState = do
            pure $ Left NoValidTxsInMemPool
 
 
-setLedger :: MonadIO m => NodeState -> Ledger.Ledger -> m ()
-setLedger nodeState ledger =
-  modifyNodeState_ nodeState nodeLedger $ \_ ->
-    putText "setLedger: Updating Ledger..." >> pure ledger
+setLedger :: (MonadIO m, MonadLogger m) => NodeState -> Ledger.Ledger -> m ()
+setLedger nodeState ledger = do
+  putText "setLedger: Updating Ledger..."
+  modifyNodeState_ nodeState nodeLedger $ \_ -> pure ledger
 
 modifyMemPool_
   :: MonadIO m
@@ -204,7 +206,7 @@ purgeMemPool nodeState = do
   return invalidTxErrs
 
 resetMemPool
-  :: MonadIO m
+  :: (MonadIO m, MonadLogger m)
   => NodeState
   -> m ()
 resetMemPool nodeState = do

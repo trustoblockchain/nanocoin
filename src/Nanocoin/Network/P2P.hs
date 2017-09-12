@@ -4,8 +4,8 @@ module Nanocoin.Network.P2P (
   p2p,
 ) where
 
-import Protolude hiding (msg)
-import Logger hiding (putText, print)
+import Protolude hiding (msg, putText, print)
+import Logger
 import qualified System.Logger as Logger
 
 import Control.Arrow ((&&&))
@@ -30,16 +30,24 @@ import qualified Nanocoin.Network.RPC as RPC
 p2p :: Node.NodeState -> Logger.Logger -> IO ()
 p2p nodeState logger = do -- TODO: Take buffer size as argument, max size of blockchain
   let (sender,receiver) = Node.nodeSender &&& Node.nodeReceiver $ nodeState
-  void $ forkIO $ forever $ receiver >>= -- | Forever handle messages
-    -- XXX forkIO here again?
-    either putText (handleMsg nodeState . fst)
+  -- | Forever handle messages
+  let loop = forever $ flip runReaderT logger $ do
+               msg <- liftIO receiver
+               either putText (handleMsg nodeState . fst) msg
+
+  -- XXX forkIO here again?
+  void $ forkIO loop
 
 ----------------------------------------------------------------
 -- Msg Handling
 ----------------------------------------------------------------
 
 -- | Main dispatch function to handle all messages received from network
-handleMsg :: Node.NodeState -> Msg.Msg -> IO ()
+handleMsg
+  :: (MonadIO m, MonadLogger m)
+  => Node.NodeState
+  -> Msg.Msg
+  -> m ()
 handleMsg nodeState msg = do
 
   putText $ "Received Msg: " <> (show msg :: Text)
@@ -52,7 +60,7 @@ handleMsg nodeState msg = do
       case find ((==) n . Block.index) chain of
         Nothing    -> putText $
           "No block with index " <> show n
-        Just block -> nodeSender $ Msg.BlockMsg block
+        Just block -> liftIO . nodeSender $ Msg.BlockMsg block
 
     Msg.BlockMsg block -> do
       mPrevBlock <- Node.getLatestBlock nodeState
@@ -65,7 +73,7 @@ handleMsg nodeState msg = do
           newPrevBlock <- Node.getLatestBlock nodeState
           when (Just block == newPrevBlock) $
             -- Ask if there is a more recent block
-            nodeSender $ Msg.QueryBlockMsg (Block.index block + 1)
+            liftIO . nodeSender $ Msg.QueryBlockMsg (Block.index block + 1)
 
     Msg.TransactionMsg tx -> do
       ledger <- Node.getLedger nodeState

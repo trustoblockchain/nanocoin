@@ -63,7 +63,7 @@ rpcServer nodeState logger = do
     --------------------------------------------------
 
     get "/mineBlock" $ do
-      eBlock <- mineBlock nodeState
+      eBlock <- runReaderT (mineBlock nodeState) logger
       case eBlock of
         Left err -> text $ show err
         Right block -> json block
