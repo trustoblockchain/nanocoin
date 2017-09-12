@@ -20,7 +20,7 @@ defaultConfig = Config 3000 Nothing
 main :: IO ()
 main = do
     Config rpc mKeys <- execParser (info parser mempty)
-    logger <- Logger.create Logger.StdOut
+    logger <- Logger.create (Logger.Path "nanocoin.log")
     initNode rpc mKeys logger
   where
     portParser :: Parser (Maybe Int)
