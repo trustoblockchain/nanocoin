@@ -2,12 +2,9 @@
 module Logger (
   Level(..),
   Output(..),
-  Logger(..),
   create,
   print,
   putText,
-  info,
-  msg,
   MonadLogger(..)
 ) where
 

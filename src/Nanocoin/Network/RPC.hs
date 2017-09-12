@@ -3,8 +3,9 @@ module Nanocoin.Network.RPC (
   rpcServer
 ) where
 
-import Protolude hiding (get, intercalate, print)
-import Logger hiding (putText)
+import Protolude hiding (get, intercalate, print, putText)
+import Logger
+import qualified System.Logger as Logger
 
 import Data.Aeson hiding (json)
 import Data.Text (intercalate)
@@ -31,7 +32,7 @@ import qualified Nanocoin.Network.Message as Msg
 -------------------------------------------------------------------------------
 
 -- | Starts an RPC server for interaction via HTTP
-rpcServer :: NodeState -> Logger -> IO ()
+rpcServer :: NodeState -> Logger.Logger -> IO ()
 rpcServer nodeState logger = do
 
   let (Peer hostName p2pPort rpcPort) = nodeConfig nodeState
@@ -39,7 +40,7 @@ rpcServer nodeState logger = do
 
   scotty rpcPort $ do
 
-    defaultHandler $ putText . toS
+    defaultHandler $ Logger.err logger . Logger.msg
 
     --------------------------------------------------
     -- Queries

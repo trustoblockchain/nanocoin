@@ -10,6 +10,7 @@ import Protolude hiding (get, put)
 
 import Web.Scotty
 import Logger
+import qualified System.Logger as Logger
 
 import qualified Key
 import qualified Nanocoin.Block as B
@@ -23,7 +24,7 @@ import qualified Nanocoin.Network.RPC as RPC
 
 -- | Initializes a node on the network with it's own copy of
 -- the blockchain, and invokes a p2p server and an http server.
-initNode :: Int -> Maybe FilePath -> Logger -> IO ()
+initNode :: Int -> Maybe FilePath -> Logger.Logger -> IO ()
 initNode rpcPort mKeysPath logger = do
   let peer = Peer.mkPeer rpcPort
 

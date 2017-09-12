@@ -7,7 +7,7 @@ import Data.Maybe (fromMaybe)
 import Nanocoin (initNode)
 
 import Options.Applicative
-import Logger hiding (info)
+import Logger
 
 data Config = Config
   { rpcPort      :: Int
@@ -20,7 +20,7 @@ defaultConfig = Config 3000 Nothing
 main :: IO ()
 main = do
     Config rpc mKeys <- execParser (info parser mempty)
-    logger <- create StdOut
+    logger <- Logger.create Logger.StdOut
     initNode rpc mKeys logger
   where
     portParser :: Parser (Maybe Int)
