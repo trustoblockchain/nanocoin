@@ -48,12 +48,10 @@ initNode rpcPort mKeysPath logger = do
   nodeState <- Node.initNodeState peer genesisBlock keys
 
   -- Fork P2P server
-  -- todo: add logging
   forkIO $ P2P.p2p nodeState logger
   -- Join network by querying latest block
   joinNetwork $ Node.nodeSender nodeState
   -- Run RPC server
-  -- todo: add logging
   RPC.rpcServer nodeState logger
 
 -- | Query the network for the latest block
