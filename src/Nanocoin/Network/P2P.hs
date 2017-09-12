@@ -5,7 +5,7 @@ module Nanocoin.Network.P2P (
 ) where
 
 import Protolude hiding (msg)
-import Logger
+import Logger hiding (putText, print)
 
 import Control.Arrow ((&&&))
 

@@ -3,8 +3,8 @@ module Nanocoin.Network.RPC (
   rpcServer
 ) where
 
-import Protolude hiding (get, intercalate)
-import Logger
+import Protolude hiding (get, intercalate, print)
+import Logger hiding (putText)
 
 import Data.Aeson hiding (json)
 import Data.Text (intercalate)

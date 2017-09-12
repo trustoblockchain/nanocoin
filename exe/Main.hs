@@ -7,7 +7,7 @@ import Data.Maybe (fromMaybe)
 import Nanocoin (initNode)
 
 import Options.Applicative
-import Logger
+import Logger hiding (info)
 
 data Config = Config
   { rpcPort      :: Int

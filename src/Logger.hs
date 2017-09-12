@@ -6,6 +6,8 @@ module Logger (
   create,
   print,
   putText,
+  info,
+  msg,
   MonadLogger(..)
 ) where
 
@@ -20,8 +22,8 @@ instance MonadIO m => MonadLogger (ReaderT Logger m) where
     logger <- ask
     Logger.log logger lvl f
 
-print :: (MonadLogger m, Show a) => a -> m ()
+print :: (MonadLogger m, MonadIO m, Show a) => a -> m ()
 print = info . msg .(show :: Show a => a -> Text)
 
-putText :: MonadLogger m => Text -> m ()
+putText :: (MonadIO m, MonadLogger m) => Text -> m ()
 putText = info . msg
