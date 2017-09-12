@@ -1,5 +1,11 @@
 {-# LANGUAGE FlexibleInstances #-}
-module Logger () where
+module Logger (
+  Level(..),
+  Output(..),
+  Logger(..),
+  create,
+  MonadLogger(..)
+) where
 
 import System.Logger.Class
 import qualified System.Logger as Logger

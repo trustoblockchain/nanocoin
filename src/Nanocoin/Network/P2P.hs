@@ -5,6 +5,7 @@ module Nanocoin.Network.P2P (
 ) where
 
 import Protolude hiding (msg)
+import Logger
 
 import Control.Arrow ((&&&))
 
@@ -25,8 +26,8 @@ import qualified Nanocoin.Network.RPC as RPC
 
 -- | Initializes a p2p node and returns a sender function so that
 -- the rpc server can broadcast messages to the p2p network
-p2p :: Node.NodeState -> IO ()
-p2p nodeState = do -- TODO: Take buffer size as argument, max size of blockchain
+p2p :: Node.NodeState -> Logger -> IO ()
+p2p nodeState logger = do -- TODO: Take buffer size as argument, max size of blockchain
   let (sender,receiver) = Node.nodeSender &&& Node.nodeReceiver $ nodeState
   void $ forkIO $ forever $ receiver >>= -- | Forever handle messages
     -- XXX forkIO here again?

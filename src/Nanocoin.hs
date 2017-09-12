@@ -9,6 +9,7 @@ module Nanocoin (
 import Protolude hiding (get, put)
 
 import Web.Scotty
+import Logger
 
 import qualified Key
 import qualified Nanocoin.Block as B
@@ -22,8 +23,8 @@ import qualified Nanocoin.Network.RPC as RPC
 
 -- | Initializes a node on the network with it's own copy of
 -- the blockchain, and invokes a p2p server and an http server.
-initNode :: Int -> Maybe FilePath -> IO ()
-initNode rpcPort mKeysPath = do
+initNode :: Int -> Maybe FilePath -> Logger -> IO ()
+initNode rpcPort mKeysPath logger = do
   let peer = Peer.mkPeer rpcPort
 
   -- Initialize Node Keys
@@ -46,11 +47,13 @@ initNode rpcPort mKeysPath = do
   nodeState <- Node.initNodeState peer genesisBlock keys
 
   -- Fork P2P server
-  forkIO $ P2P.p2p nodeState
+  -- todo: add logging
+  forkIO $ P2P.p2p nodeState logger
   -- Join network by querying latest block
   joinNetwork $ Node.nodeSender nodeState
   -- Run RPC server
-  RPC.rpcServer nodeState
+  -- todo: add logging
+  RPC.rpcServer nodeState logger
 
 -- | Query the network for the latest block
 joinNetwork :: Msg.MsgSender -> IO ()
