@@ -40,7 +40,7 @@ rpcServer nodeState logger = do
 
   scotty rpcPort $ do
 
-    defaultHandler $ Logger.err logger . Logger.msg
+    defaultHandler $ logError' logger . toS
 
     --------------------------------------------------
     -- Queries
@@ -63,7 +63,7 @@ rpcServer nodeState logger = do
     --------------------------------------------------
 
     get "/mineBlock" $ do
-      eBlock <- runReaderT (mineBlock nodeState) logger
+      eBlock <- runLogger logger $ mineBlock nodeState
       case eBlock of
         Left err -> text $ show err
         Right block -> json block

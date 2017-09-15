@@ -1,11 +1,14 @@
 {-# LANGUAGE FlexibleInstances #-}
 module Logger (
-  Level(..),
-  Output(..),
-  create,
-  print,
-  putText,
-  MonadLogger(..)
+  MonadLogger(..),
+
+  mkLogger,
+  runLogger,
+
+  logInfo,
+  logWarning,
+  logError,
+  logError',
 ) where
 
 import Protolude hiding (print, putText, ask)
@@ -19,8 +22,22 @@ instance MonadIO m => MonadLogger (ReaderT Logger m) where
     logger <- ask
     Logger.log logger lvl f
 
-print :: (MonadLogger m, MonadIO m, Show a) => a -> m ()
-print = info . msg .(show :: Show a => a -> Text)
+runLogger = flip runReaderT
 
-putText :: (MonadIO m, MonadLogger m) => Text -> m ()
-putText = info . msg
+mkLogger :: MonadIO m => Maybe FilePath -> m Logger
+mkLogger mfp =
+  case mfp of
+    Nothing -> create Logger.StdOut
+    Just fp -> create $ Logger.Path fp
+
+logInfo :: (MonadLogger m, Show a) => a -> m ()
+logInfo = info . msg . (show :: Show a => a -> Text)
+
+logWarning :: (MonadLogger m, Show a) => a -> m ()
+logWarning = warn . msg . (show :: Show a => a -> Text)
+
+logError :: (MonadLogger m, Show a) => a -> m ()
+logError = err . msg . (show :: Show a => a -> Text)
+
+logError' :: MonadIO m => Logger -> Text -> m ()
+logError' logger = flip runReaderT logger . logError

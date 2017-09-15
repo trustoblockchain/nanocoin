@@ -31,12 +31,10 @@ p2p :: Node.NodeState -> Logger.Logger -> IO ()
 p2p nodeState logger = do -- TODO: Take buffer size as argument, max size of blockchain
   let (sender,receiver) = Node.nodeSender &&& Node.nodeReceiver $ nodeState
   -- | Forever handle messages
-  let loop = forever $ flip runReaderT logger $ do
-               msg <- liftIO receiver
-               either putText (handleMsg nodeState . fst) msg
-
-  -- XXX forkIO here again?
-  void $ forkIO loop
+  void $ forkIO $ forever $
+    runLogger logger $
+      liftIO receiver >>=
+        either Logger.logWarning (handleMsg nodeState . fst)
 
 ----------------------------------------------------------------
 -- Msg Handling
@@ -50,7 +48,7 @@ handleMsg
   -> m ()
 handleMsg nodeState msg = do
 
-  putText $ "Received Msg: " <> (show msg :: Text)
+  logInfo $ "handleMsg: Received Msg: " <> (show msg :: Text)
   let nodeSender = Node.nodeSender nodeState
 
   case msg of
@@ -58,14 +56,13 @@ handleMsg nodeState msg = do
     Msg.QueryBlockMsg n -> do
       chain <- Node.getBlockChain nodeState
       case find ((==) n . Block.index) chain of
-        Nothing    -> putText $
-          "No block with index " <> show n
+        Nothing -> logInfo ("handleMsg: No block with index " <> show n :: Text)
         Just block -> liftIO . nodeSender $ Msg.BlockMsg block
 
     Msg.BlockMsg block -> do
       mPrevBlock <- Node.getLatestBlock nodeState
       case mPrevBlock of
-        Nothing -> putText "handleMessage: No Genesis block found."
+        Nothing -> logInfo "handleMsg: No Genesis block found."
         Just prevBlock -> do
           -- Apply block to world state
           Node.applyBlock nodeState prevBlock block
@@ -79,7 +76,7 @@ handleMsg nodeState msg = do
       ledger <- Node.getLedger nodeState
       -- Verify Signature before adding to MemPool
       case T.verifyTxSignature ledger tx of
-        Left err -> print err
+        Left err -> logError ("handleMsg: " <> show err :: Text)
         Right _  -> -- Add transaction to mempool
           Node.modifyMemPool_ nodeState $
             MemPool.addTransaction tx

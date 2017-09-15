@@ -117,10 +117,10 @@ applyBlock
 applyBlock nodeState prevBlock  block = do
   ledger <- getLedger nodeState
   case Block.validateAndApplyBlock ledger prevBlock block of
-    Left err -> putText $ show err
+    Left err -> logError err
     Right (ledger', itxs)
       | null itxs -> do
-          putText "applyBlock: Block is valid. Applying block..."
+          logInfo "applyBlock: Block is valid. Applying block..."
           -- If no invalid transactions, add block to chain
           modifyBlockChain_ nodeState (block:)
           -- Remove stale, invalid transactions
@@ -130,9 +130,8 @@ applyBlock nodeState prevBlock  block = do
           modifyMemPool_ nodeState $ MP.removeTransactions blockTxs
           -- Update ledger to new ledger state
           setLedger nodeState ledger'
-      | otherwise -> putText $
-          (<>) "applyBlock:\n" $
-            T.unlines $ map ((<>) "\t" . show) itxs
+      | otherwise -> logWarning $ ("applyBlock:\n" <>) $
+          T.unlines $ map ((<>) "\t" . show) itxs
 
 mineBlock
   :: (MonadIO m, MonadLogger m)
@@ -144,16 +143,16 @@ mineBlock nodeState = do
   case mPrevBlock of
     Nothing -> pure $ Left NoGenesisBlock
     Just prevBlock -> do
-      putText "[0] Attempting to mine a block..."
+      logInfo "mineBlock: Attempting to mine a block..."
 
       -- Validate and discard invalid transactions
-      putText "[1] Discarding Invalid Transactions..."
+      logInfo "mineBlock: Discarding Invalid Transactions..."
       invalidTxErrs <- purgeMemPool nodeState
-      mapM_ (putText . show) invalidTxErrs
+      mapM_ logWarning invalidTxErrs
       validTxs <- MP.unMemPool <$> getMemPool nodeState
 
       -- Attempt to mine block with the valid transactions
-      putText "[2] Constructing new block..."
+      logInfo "mineblock: Constructing new block..."
 
       let keys = nodeKeys nodeState
       ledger <- getLedger nodeState
@@ -166,7 +165,7 @@ mineBlock nodeState = do
             Right (_, invalidTxErrs')
               | null invalidTxErrs' -> do
                   let blockHashText = decodeUtf8 (Block.hashBlock block)
-                  putText $ "Generated block with hash:\n\t" <> blockHashText
+                  logInfo $ "Generated block with hash:\n\t" <> blockHashText
                   -- Broadcast block message to network
                   let p2pSender = nodeSender nodeState
                   liftIO $ p2pSender (Msg.BlockMsg block)
@@ -181,7 +180,7 @@ mineBlock nodeState = do
 
 setLedger :: (MonadIO m, MonadLogger m) => NodeState -> Ledger.Ledger -> m ()
 setLedger nodeState ledger = do
-  putText "setLedger: Updating Ledger..."
+  logInfo "setLedger: Updating Ledger..."
   modifyNodeState_ nodeState nodeLedger $ \_ -> pure ledger
 
 modifyMemPool_
@@ -210,7 +209,7 @@ resetMemPool
   => NodeState
   -> m ()
 resetMemPool nodeState = do
-  putText "resetMemPool: Resetting memPool..."
+  logInfo "resetMemPool: Resetting memPool..."
   modifyMemPool_ nodeState (const mempty)
 
 -------------------------------------------------------------------------------
