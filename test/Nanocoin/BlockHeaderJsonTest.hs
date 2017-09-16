@@ -4,15 +4,13 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 module Nanocoin.BlockHeaderJsonTest (
-  prop_blockHeader,
+  prop_blockHeaderJson,
   tests
 ) where
 
 import Protolude
 
 import Hedgehog
-import qualified Hedgehog.Gen as Gen
-import qualified Hedgehog.Range as Range
 
 import Data.Aeson
 import Data.Aeson.Lens
@@ -23,8 +21,8 @@ import qualified Key
 import qualified Hash
 import qualified Nanocoin.BlockTestUtils as Utils
 
-prop_blockHeader :: Property
-prop_blockHeader = property $ do
+prop_blockHeaderJson :: Property
+prop_blockHeaderJson = property $ do
   pk <- liftIO $ Utils.publicKey
   bh <- forAll $ Utils.genBlockHeader pk
   json <- return $ encode bh
