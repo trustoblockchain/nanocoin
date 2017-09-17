@@ -221,7 +221,7 @@ instance ToJSON Reward where
                [ "x" .= (x :: Integer)
                , "y" .= (y :: Integer)
                ]
-           , "reward "    .= toJSON amnt
+           , "reward"    .= toJSON amnt
            ]
 
 instance ToJSON Transaction where
