@@ -8,6 +8,7 @@ module Nanocoin.Utils (
   genTransaction,
   genTransfer,
   genReward,
+  genAddress,
   publicKey,
   toByteString
 ) where

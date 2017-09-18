@@ -27,7 +27,7 @@ import qualified Nanocoin.Utils as Utils
 
 prop_transfer :: Property
 prop_transfer = property $ do
-  pk <- liftIO $ Utils.publicKey
+  pk <- liftIO Utils.publicKey
   transfer <- forAll $ Utils.genTransfer pk
   json <- return $ encode transfer
 
@@ -36,7 +36,7 @@ prop_transfer = property $ do
 
 prop_reward :: Property
 prop_reward = property $ do
-  pk <- liftIO $ Utils.publicKey
+  pk <- liftIO Utils.publicKey
   reward <- forAll $ Utils.genReward pk
   json <- return $ encode reward
 
@@ -44,7 +44,7 @@ prop_reward = property $ do
 
 prop_transaction :: Property
 prop_transaction = property $ do
-  pk <- liftIO $ Utils.publicKey
+  pk <- liftIO Utils.publicKey
   transHeader <- forAll $ genTransactionHeader pk
   transaction <- forAll $ Utils.genTransaction transHeader
   json <- return $ encode transaction

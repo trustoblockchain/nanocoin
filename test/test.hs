@@ -6,6 +6,7 @@ import Control.Monad
 import System.Exit
 import qualified Nanocoin.BlockHeaderJsonTest as BlockHeaderJson
 import qualified Nanocoin.TransactionJsonTest as TransactionJson
+import qualified Nanocoin.AddressJsonTest as AddressJson
 
 main :: IO ()
 main = do
@@ -14,7 +15,8 @@ main = do
 
   _results <- sequence [
       BlockHeaderJson.tests,
-      TransactionJson.tests
+      TransactionJson.tests,
+      AddressJson.tests
     ]
 
   Control.Monad.unless (and _results) $
