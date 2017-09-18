@@ -27,7 +27,7 @@ addrSize = 32
 
 -- | A ledger address, derived from elliptic curve point
 newtype Address = Address { rawAddress :: ByteString }
-  deriving (Show, Eq, Ord, Monoid, S.Serialize, IsString)
+  deriving (Show, Read, Eq, Ord, Monoid, S.Serialize, IsString)
 
 instance ToJSON Address where
   toJSON (Address bs) = Data.Aeson.String (decodeUtf8 bs)

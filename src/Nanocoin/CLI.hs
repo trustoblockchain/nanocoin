@@ -33,21 +33,49 @@ data CLI
   = Query Query
   | Command Cmd
 
-cli :: NodeState -> InputT IO ()
+cli :: NodeState -> IO ()
 cli nodeState = runInputT defaultSettings loop
   where
     loop = do
       minput <- getInputLine "nanocoin> "
       case minput of
-        Nothing -> pure ()
+        Nothing -> loop
         Just input -> do
           let cliInputArgs = words input
           cmdOrQuery <- liftIO $ handleParseResult $
             execParserPure defaultPrefs (info cliParser mempty) cliInputArgs
           liftIO $ handleCLI nodeState cmdOrQuery
+          loop
 
 cliParser :: Parser CLI
-cliParser = notImplemented -- XXX
+cliParser = subparser $ mconcat
+    [ command "query" $ info (Query <$> queryParser) $
+        progDesc "Query the node's state"
+    , command "command" $ info (Command <$> cmdParser) $
+        progDesc "Issue a command to the node"
+    ]
+  where
+    queryParser = subparser $ mconcat
+      [ command "address" $ info (pure QueryAddress) $
+          progDesc "Query the node's address"
+      , command "blocks"  $ info (pure QueryBlocks) $
+          progDesc "Query the node's blocks"
+      , command "mempool" $ info (pure QueryMemPool) $
+          progDesc "Query the node's transaction pool"
+      , command "ledger"  $ info (pure QueryLedger) $
+          progDesc "Query the node's ledger"
+      ]
+
+    cmdParser = subparser $ mconcat
+        [ command "mineblock" $ info (pure CmdMineBlock) $
+            progDesc "Mine a block"
+        , command "transfer"  $ info transfer $
+            progDesc "Tranfer an AMOUNT to an ADDRESS"
+        ]
+      where
+        transfer = CmdTransfer
+          <$> argument auto (metavar "AMOUNT")
+          <*> argument auto (metavar "ADDRESS")
 
 handleCLI :: NodeState -> CLI -> IO ()
 handleCLI nodeState cli =
