@@ -5,12 +5,10 @@
 
 module Nanocoin.Utils (
   genBlockHeader,
-  genTransaction,
   genTransfer,
   genReward,
-  genAddress,
   publicKey,
-  toByteString
+  encodeThenDecode
 ) where
 
 import Protolude
@@ -19,20 +17,14 @@ import Hedgehog
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
 
-import qualified Control.Monad.Trans.Except as Ex
-
-import qualified Data.ByteString as BS
+import qualified Data.Serialize as S
 import qualified Data.ByteString.Char8 as B8
-import qualified Data.Text as T
 
 import qualified Key
 import qualified Hash
 import qualified Address
 import qualified Nanocoin.Block as Block
 import qualified Nanocoin.Transaction as Tran
-
-type GT = GenT Identity
-type Stack = ExceptT Text GT Address.Address
 
 genBlockHeader :: Key.PublicKey -> Gen Block.BlockHeader
 genBlockHeader pk =
@@ -41,12 +33,6 @@ genBlockHeader pk =
     <*> genAlphaNumByteString
     <*> genAlphaNumByteString
     <*> genNonce
-
-genTransaction :: Tran.TransactionHeader -> Gen Tran.Transaction
-genTransaction th =
-  Tran.Transaction
-    <$> Gen.constant th
-    <*> (toByteString . T.unpack . Hash.encode64 <$> genAlphaNumByteString)
 
 genTransfer :: Key.PublicKey -> Gen Tran.Transfer
 genTransfer pk =
@@ -60,6 +46,9 @@ genReward pk =
   Tran.Reward
     <$> Gen.constant pk
     <*> genInt
+
+encodeThenDecode :: (S.Serialize a) => a -> Either String a
+encodeThenDecode = S.decodeLazy . S.encodeLazy
 
 genAddress :: Key.PublicKey -> Gen Address.Address
 genAddress = Gen.constant . Address.deriveAddress

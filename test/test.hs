@@ -4,9 +4,9 @@ import Protolude
 
 import Control.Monad
 import System.Exit
-import qualified Nanocoin.BlockHeaderJsonTest as BlockHeaderJson
-import qualified Nanocoin.TransactionJsonTest as TransactionJson
-import qualified Nanocoin.AddressJsonTest as AddressJson
+
+import qualified Nanocoin.BlockHeaderSerializationTest as BlockHeaderTests
+import qualified Nanocoin.TransactionSerializationTest as TransactionTests
 
 main :: IO ()
 main = do
@@ -14,9 +14,8 @@ main = do
   hSetBuffering stderr LineBuffering
 
   _results <- sequence [
-      BlockHeaderJson.tests,
-      TransactionJson.tests,
-      AddressJson.tests
+      BlockHeaderTests.tests,
+      TransactionTests.tests
     ]
 
   Control.Monad.unless (and _results) $
