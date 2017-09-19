@@ -2,7 +2,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-
 module Nanocoin.Utils (
   genBlockHeader,
   genTransfer,
@@ -47,7 +46,7 @@ genReward pk =
     <$> Gen.constant pk
     <*> genInt
 
-encodeThenDecode :: (S.Serialize a) => a -> Either String a
+encodeThenDecode :: (S.Serialize a) => a -> Either [Char] a
 encodeThenDecode = S.decodeLazy . S.encodeLazy
 
 genAddress :: Key.PublicKey -> Gen Address.Address

@@ -5,8 +5,9 @@ import Protolude
 import Control.Monad
 import System.Exit
 
-import qualified Nanocoin.BlockHeaderSerializationTest as BlockHeaderTests
-import qualified Nanocoin.TransactionSerializationTest as TransactionTests
+import qualified Nanocoin.BlockHeaderSerializationTests as BlockHeaderTests
+import qualified Nanocoin.TransactionSerializationTests as TransactionTests
+import qualified Nanocoin.PortNumberSerializationTests as PortNumberTests
 
 main :: IO ()
 main = do
@@ -15,7 +16,8 @@ main = do
 
   _results <- sequence [
       BlockHeaderTests.tests,
-      TransactionTests.tests
+      TransactionTests.tests,
+      PortNumberTests.tests
     ]
 
   Control.Monad.unless (and _results) $

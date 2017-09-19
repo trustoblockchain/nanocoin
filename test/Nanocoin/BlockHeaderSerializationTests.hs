@@ -2,8 +2,8 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Nanocoin.BlockHeaderSerializationTest (
-  prop_blockHeaderJson,
+module Nanocoin.BlockHeaderSerializationTests (
+  prop_blockHeaderSerialization,
   tests
 ) where
 
@@ -15,8 +15,8 @@ import qualified Data.Serialize as S
 
 import qualified Nanocoin.Utils as Utils
 
-prop_blockHeaderJson :: Property
-prop_blockHeaderJson = property $ do
+prop_blockHeaderSerialization :: Property
+prop_blockHeaderSerialization = property $ do
   pk <- liftIO Utils.publicKey
   bh <- forAll $ Utils.genBlockHeader pk
   Utils.encodeThenDecode bh === Right bh
@@ -26,6 +26,6 @@ toInt64 = fromIntegral
 
 tests :: IO Bool
 tests =
-  checkParallel $ Group "Nanocoin.BlockHeaderJsonTest" [
-      ("prop_blockHeaderJson", prop_blockHeaderJson)
+  checkParallel $ Group "Nanocoin.BlockHeaderSerializationTests" [
+      ("prop_blockHeaderSerialization", prop_blockHeaderSerialization)
     ]
