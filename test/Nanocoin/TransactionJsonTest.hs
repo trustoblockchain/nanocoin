@@ -1,7 +1,6 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TemplateHaskell #-}
 
 module Nanocoin.TransactionJsonTest where
 
@@ -102,4 +101,9 @@ toInt :: Integer -> Int
 toInt = fromIntegral
 
 tests :: IO Bool
-tests = checkSequential $$(discover)
+tests =
+  checkParallel $ Group "Nanocoin.TransactionJsonTest" [
+      ("prop_transfer", prop_transfer),
+      ("prop_reward", prop_reward),
+      ("prop_transaction", prop_transaction)
+    ]

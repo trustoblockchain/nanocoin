@@ -1,7 +1,6 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TemplateHaskell #-}
 
 module Nanocoin.BlockHeaderJsonTest (
   prop_blockHeaderJson,
@@ -42,4 +41,7 @@ toInt64 :: Integer -> Int64
 toInt64 = fromIntegral
 
 tests :: IO Bool
-tests = checkSequential $$(discover)
+tests =
+  checkParallel $ Group "Nanocoin.BlockHeaderJsonTest" [
+      ("prop_blockHeaderJson", prop_blockHeaderJson)
+    ]

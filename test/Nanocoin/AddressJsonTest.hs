@@ -1,7 +1,6 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TemplateHaskell #-}
 
 module Nanocoin.AddressJsonTest where
 
@@ -33,4 +32,7 @@ prop_addressJson = property $ do
   (decode json :: Maybe Address.Address) === Just addr
 
 tests :: IO Bool
-tests = checkSequential $$(discover)
+tests =
+  checkParallel $ Group "Nanocoin.AddressJsonTest" [
+      ("prop_addressJson", prop_addressJson)
+    ]
