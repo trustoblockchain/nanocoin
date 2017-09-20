@@ -2,10 +2,11 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Nanocoin.Utils (
+module Gen (
   genBlockHeader,
   genTransfer,
   genReward,
+  genWord16,
   publicKey,
   encodeThenDecode
 ) where
@@ -60,6 +61,9 @@ genNonce = Gen.int64 (Range.constant 0 (maxBound :: Int64))
 
 genInt :: Gen Int
 genInt = Gen.int (Range.constant 0 (maxBound :: Int))
+
+genWord16 :: Gen Word16
+genWord16 = Gen.word16 (Range.linear 0 (maxBound :: Word16))
 
 publicKey :: IO Key.PublicKey
 publicKey = fst <$> Key.newKeyPair
