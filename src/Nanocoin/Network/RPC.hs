@@ -34,7 +34,6 @@ rpcServer :: NodeState -> IO ()
 rpcServer nodeState = do
 
   let (Peer hostName p2pPort rpcPort) = nodeConfig nodeState
-  let p2pSender = nodeSender nodeState
 
   scotty rpcPort $ do
 
@@ -71,11 +70,8 @@ rpcServer nodeState = do
       amount <- param "amount"
       case mkAddress (encodeUtf8 toAddr') of
         Left err -> text $ toSL err
-        Right toAddr -> do
-          let keys = nodeKeys nodeState
-          tx <- liftIO $ T.transferTransaction keys toAddr amount
-          liftIO . p2pSender $ Msg.TransactionMsg tx
-          json tx
+        Right toAddr -> json =<<
+          issueTransfer nodeState toAddr amount
 
 queryNodeState
   :: ToJSON a
