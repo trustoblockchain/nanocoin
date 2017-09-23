@@ -10,15 +10,17 @@ import Prelude (words)
 
 import qualified Data.Map as Map
 
+import Options.Applicative
+
+import System.Console.Haskeline hiding (defaultPrefs, catch)
+
+import Logger
 import Address (Address, mkAddress)
+
 import Nanocoin.Network.Node (NodeState)
 import qualified Nanocoin.Ledger as L
 import qualified Nanocoin.MemPool as MP
 import qualified Nanocoin.Network.Node as Node
-
-import Options.Applicative
-
-import System.Console.Haskeline hiding (defaultPrefs, catch)
 
 data Query
   = QueryAddress
@@ -37,8 +39,8 @@ data CLI
   | Command Cmd
   deriving (Show)
 
-cli :: NodeState -> IO ()
-cli nodeState = runInputT defaultSettings cliLoop
+cli :: NodeState -> Logger -> IO ()
+cli nodeState logger = runInputT defaultSettings cliLoop
   where
     parserPrefs = defaultPrefs
       { prefShowHelpOnEmpty = True }
@@ -50,11 +52,12 @@ cli nodeState = runInputT defaultSettings cliLoop
         Just input -> do
           let cliInputArgs = words input
           mCmdOrQuery <- liftIO $ handleParseResult_ $
-            execParserPure parserPrefs (info cliParser mempty) cliInputArgs
+            execParserPure parserPrefs (info cliParser fullDesc) cliInputArgs
           case mCmdOrQuery of
             Nothing -> cliLoop
             Just cmdOrQuery -> do
-              liftIO $ handleCLI nodeState cmdOrQuery
+              liftIO $ runLogger logger $
+                handleCLI nodeState cmdOrQuery
               cliLoop
 
 cliParser :: Parser CLI
@@ -97,7 +100,11 @@ handleParseResult_ pr =
   fmap Just (handleParseResult pr) `catch` \(e :: ExitCode) ->
     pure Nothing
 
-handleCLI :: NodeState -> CLI -> IO ()
+handleCLI
+  :: (MonadIO m, MonadLogger m)
+  => NodeState
+  -> CLI
+  -> m ()
 handleCLI nodeState cli =
 
   case cli of
@@ -137,7 +144,7 @@ handleCLI nodeState cli =
         CmdMineBlock        -> do
           eBlock <- Node.mineBlock nodeState
           case eBlock of
-            Left err    -> putText $ "Error mining block: " <> show err
+            Left err    -> logError ("Failed to mine block: " <> show err :: Text)
             Right block -> putText "Successfully mined block: " >> print block
 
         CmdTransfer amnt to -> do

@@ -3,7 +3,7 @@ module Nanocoin.Network.RPC (
   rpcServer
 ) where
 
-import Protolude hiding (get, intercalate)
+import Protolude hiding (get, intercalate, print, putText)
 
 import Data.Aeson hiding (json)
 import Data.Text (intercalate)
@@ -12,32 +12,34 @@ import Web.Scotty
 import Data.List ((\\))
 import qualified Data.Map as Map
 
+import Logger
 import Address
+import qualified Address
+
 import Nanocoin.Network.Node
 import Nanocoin.Network.Peer
 
-import qualified Address
 import qualified Key
+
 import qualified Nanocoin.Ledger as L
 import qualified Nanocoin.Block as B
 import qualified Nanocoin.MemPool as MP
 import qualified Nanocoin.Transaction as T
 import qualified Nanocoin.Network.Message as Msg
 
-
 -------------------------------------------------------------------------------
 -- RPC (HTTP) Server
 -------------------------------------------------------------------------------
 
 -- | Starts an RPC server for interaction via HTTP
-rpcServer :: NodeState -> IO ()
-rpcServer nodeState = do
+rpcServer :: NodeState -> Logger -> IO ()
+rpcServer nodeState logger = do
 
   let (Peer hostName p2pPort rpcPort) = nodeConfig nodeState
 
   scotty rpcPort $ do
 
-    defaultHandler $ putText . toS
+    defaultHandler $ logError' logger . toS
 
     --------------------------------------------------
     -- Queries
@@ -60,7 +62,7 @@ rpcServer nodeState = do
     --------------------------------------------------
 
     get "/mineBlock" $ do
-      eBlock <- mineBlock nodeState
+      eBlock <- runLogger logger $ mineBlock nodeState
       case eBlock of
         Left err -> text $ show err
         Right block -> json block
