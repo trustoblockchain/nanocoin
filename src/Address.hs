@@ -1,4 +1,3 @@
-{-# Language NoImplicitPrelude #-}
 {-# Language GeneralizedNewtypeDeriving #-}
 
 module Address (
