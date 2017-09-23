@@ -104,22 +104,6 @@ both a command and query entry points. Simply type in
     have, the transaction will be rejected during the block mining process and
     purged from all nodes' mem-pools.
 
-### TODO:
-
-- [ ] More Docs (explain the crypto math a bit better, serialization)
-- [ ] Add a test module
-- [ ] Add persistence of keys so address doesn't change every time a node is
-  booted.
-- [ ] Add data persistence, currently everything is in held in memory
-- [ ] Transition from multicast to distributed processing p2p network
-  (`cloud-haskell`)
-- [x] Include a *merkle tree root* of transaction hashes in the block header
-  instead of a full list of transactions
-- [ ] Query transaction inclusion using merkle proofs
-- [ ] Develop a more sophisticated asynchronous messaging protocol after
-  transitioning to `cloud-haskell`
-- [ ] Add a CLI for friendlier interaction with a nanocoin node than a web browser
-
 Overview of Basic Cryptocurrency Components
 -------------------------------------------
 

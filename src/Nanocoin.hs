@@ -14,6 +14,7 @@ import qualified System.Logger as Logger
 
 import qualified Key
 import qualified Nanocoin.Block as B
+import qualified Nanocoin.CLI as CLI
 import qualified Nanocoin.Ledger as L
 import qualified Nanocoin.Transaction as T
 import qualified Nanocoin.Network.Message as Msg
@@ -51,8 +52,11 @@ initNode rpcPort mKeysPath logger = do
   forkIO $ P2P.p2p nodeState logger
   -- Join network by querying latest block
   joinNetwork $ Node.nodeSender nodeState
-  -- Run RPC server
-  RPC.rpcServer nodeState logger
+
+  forkIO $ RPC.rpcServer nodeState logger
+
+  -- Run cmd line interface
+  CLI.cli nodeState logger
 
 -- | Query the network for the latest block
 joinNetwork :: Msg.MsgSender -> IO ()

@@ -1,5 +1,6 @@
 {-# LANGUAGE FlexibleInstances #-}
 module Logger (
+  Logger(..),
   MonadLogger(..),
 
   mkLogger,

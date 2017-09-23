@@ -4,8 +4,6 @@ module Nanocoin.Network.RPC (
 ) where
 
 import Protolude hiding (get, intercalate, print, putText)
-import Logger
-import qualified System.Logger as Logger
 
 import Data.Aeson hiding (json)
 import Data.Text (intercalate)
@@ -14,29 +12,30 @@ import Web.Scotty
 import Data.List ((\\))
 import qualified Data.Map as Map
 
+import Logger
 import Address
+import qualified Address
+
 import Nanocoin.Network.Node
 import Nanocoin.Network.Peer
 
-import qualified Address
 import qualified Key
+
 import qualified Nanocoin.Ledger as L
 import qualified Nanocoin.Block as B
 import qualified Nanocoin.MemPool as MP
 import qualified Nanocoin.Transaction as T
 import qualified Nanocoin.Network.Message as Msg
 
-
 -------------------------------------------------------------------------------
 -- RPC (HTTP) Server
 -------------------------------------------------------------------------------
 
 -- | Starts an RPC server for interaction via HTTP
-rpcServer :: NodeState -> Logger.Logger -> IO ()
+rpcServer :: NodeState -> Logger -> IO ()
 rpcServer nodeState logger = do
 
   let (Peer hostName p2pPort rpcPort) = nodeConfig nodeState
-  let p2pSender = nodeSender nodeState
 
   scotty rpcPort $ do
 
@@ -73,11 +72,8 @@ rpcServer nodeState logger = do
       amount <- param "amount"
       case mkAddress (encodeUtf8 toAddr') of
         Left err -> text $ toSL err
-        Right toAddr -> do
-          let keys = nodeKeys nodeState
-          tx <- liftIO $ T.transferTransaction keys toAddr amount
-          liftIO . p2pSender $ Msg.TransactionMsg tx
-          json tx
+        Right toAddr -> json =<<
+          issueTransfer nodeState toAddr amount
 
 queryNodeState
   :: ToJSON a

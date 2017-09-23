@@ -1,0 +1,19 @@
+machine:
+  environment:
+    STACK_VERION: 1.5.1
+
+dependencies:
+  cache_directories:
+    - "~/.stack"
+  pre:
+    - wget https://github.com/commercialhaskell/stack/releases/download/v${STACK_VERION}/stack-${STACK_VERION}-linux-x86_64.tar.gz -O /tmp/stack.tar.gz
+    - mkdir /tmp/stack/
+    - tar -xzf /tmp/stack.tar.gz --strip-components=1 -C /tmp/stack/
+    - sudo mv /tmp/stack /usr/bin/stack
+  override:
+    - stack setup
+    - stack build
+
+test:
+  override:
+    - stack test

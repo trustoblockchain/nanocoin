@@ -13,6 +13,7 @@ module Nanocoin.Network.Node (
 
   applyBlock,
   mineBlock,
+  issueTransfer,
   getLatestBlock,
 
   getLedger,
@@ -35,6 +36,7 @@ import qualified Data.Text as T
 
 import Address (Address)
 import Nanocoin.Block (Block, Blockchain)
+import Nanocoin.Transaction (Transaction)
 import Nanocoin.MemPool (MemPool)
 
 import qualified Address
@@ -177,6 +179,18 @@ mineBlock nodeState = do
          else
            pure $ Left NoValidTxsInMemPool
 
+issueTransfer
+  :: MonadIO m
+  => NodeState
+  -> Address
+  -> Int
+  -> m Transaction
+issueTransfer nodeState toAddr amount = do
+  let keys = nodeKeys nodeState
+  tx <- liftIO $ Tx.transferTransaction keys toAddr amount
+  let p2pSender = nodeSender nodeState
+  liftIO . p2pSender $ Msg.TransactionMsg tx
+  pure tx
 
 setLedger :: (MonadIO m, MonadLogger m) => NodeState -> Ledger.Ledger -> m ()
 setLedger nodeState ledger = do

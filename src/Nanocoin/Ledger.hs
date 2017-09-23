@@ -2,7 +2,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module Nanocoin.Ledger (
-  Ledger,
+  Ledger(..),
 
   transfer,
   TransferError,
