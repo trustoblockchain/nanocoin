@@ -1,57 +1,41 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE OverloadedStrings #-}
 
-module Serialization (
-  prop_blockHeaderSerialization,
-  prop_portNumberSerialization,
-  prop_transferSerialization,
-  prop_rewardSerialization,
-  tests
-) where
+module Serialization where
 
 import Protolude
+
+import Data.Serialize as S
+
+import Gen
+import Key
 
 import Hedgehog
 import Hedgehog.Gen
 
-import Network.Socket (PortNumber)
-
-import qualified Nanocoin.Network.Peer as P
-
-import Gen
+encodeThenDecode :: Serialize a => a -> Either [Char] a
+encodeThenDecode = S.decodeLazy . S.encodeLazy
 
 prop_blockHeaderSerialization :: Property
 prop_blockHeaderSerialization = property $ do
-  pk <- liftIO Gen.publicKey
+  pk <- liftIO $ fst <$> Key.newKeyPair
   bh <- forAll $ Gen.genBlockHeader pk
-  Gen.encodeThenDecode bh === Right bh
-
-prop_portNumberSerialization :: Property
-prop_portNumberSerialization =
-  property $ do
-    w16 <- forAll $ genWord16
-    let
-      pn = (fromIntegral w16) :: PortNumber
-    Gen.encodeThenDecode pn === Right pn
+  encodeThenDecode bh === Right bh
 
 prop_transferSerialization :: Property
 prop_transferSerialization = property $ do
-  pk <- liftIO Gen.publicKey
+  pk <- liftIO $ fst <$> Key.newKeyPair
   transfer <- forAll $ Gen.genTransfer pk
-  Gen.encodeThenDecode transfer === Right transfer
+  encodeThenDecode transfer === Right transfer
 
 prop_rewardSerialization :: Property
 prop_rewardSerialization = property $ do
-  pk <- liftIO Gen.publicKey
+  pk <- liftIO $ fst <$> Key.newKeyPair
   reward <- forAll $ Gen.genReward pk
-  Gen.encodeThenDecode reward === Right reward
+  encodeThenDecode reward === Right reward
 
 tests :: IO Bool
-tests =
-  checkParallel $ Group "Nanocoin.SerializationTests" [
-      ("prop_blockHeaderSerialization", prop_blockHeaderSerialization),
-      ("prop_portNumberSerialization", prop_portNumberSerialization),
-      ("prop_transferSerialization", prop_transferSerialization),
-      ("prop_rewardSerialization", prop_rewardSerialization)
+tests = checkParallel $
+  Group "Nanocoin.SerializationTests"
+    [ ("prop_blockHeaderSerialization", prop_blockHeaderSerialization)
+    , ("prop_transferSerialization", prop_transferSerialization)
+    , ("prop_rewardSerialization", prop_rewardSerialization)
     ]

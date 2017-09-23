@@ -6,9 +6,6 @@ module Gen (
   genBlockHeader,
   genTransfer,
   genReward,
-  genWord16,
-  publicKey,
-  encodeThenDecode
 ) where
 
 import Protolude
@@ -17,7 +14,6 @@ import Hedgehog
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
 
-import qualified Data.Serialize as S
 import qualified Data.ByteString.Char8 as B8
 
 import qualified Key
@@ -26,6 +22,10 @@ import qualified Address
 import qualified Nanocoin.Block as Block
 import qualified Nanocoin.Transaction as Tran
 
+----------------------------------------------------------------
+-- Block Gen
+----------------------------------------------------------------
+
 genBlockHeader :: Key.PublicKey -> Gen Block.BlockHeader
 genBlockHeader pk =
   Block.BlockHeader
@@ -33,6 +33,13 @@ genBlockHeader pk =
     <*> genAlphaNumByteString
     <*> genAlphaNumByteString
     <*> genNonce
+
+genNonce :: Gen Int64
+genNonce = Gen.int64 (Range.constant 0 (maxBound :: Int64))
+
+----------------------------------------------------------------
+-- Transaction Gen
+----------------------------------------------------------------
 
 genTransfer :: Key.PublicKey -> Gen Tran.Transfer
 genTransfer pk =
@@ -47,26 +54,20 @@ genReward pk =
     <$> Gen.constant pk
     <*> genInt
 
-encodeThenDecode :: (S.Serialize a) => a -> Either [Char] a
-encodeThenDecode = S.decodeLazy . S.encodeLazy
+----------------------------------------------------------------
+-- Address Gen
+----------------------------------------------------------------
 
 genAddress :: Key.PublicKey -> Gen Address.Address
 genAddress = Gen.constant . Address.deriveAddress
 
-genAlphaNumByteString :: Gen ByteString
-genAlphaNumByteString = toByteString <$> (Gen.string (Range.constant 50 100) Gen.alphaNum)
+----------------------------------------------------------------
+-- Helpers Gen
+----------------------------------------------------------------
 
-genNonce :: Gen Int64
-genNonce = Gen.int64 (Range.constant 0 (maxBound :: Int64))
+genAlphaNumByteString :: Gen ByteString
+genAlphaNumByteString = B8.pack <$>
+  Gen.string (Range.constant 50 100) Gen.alphaNum
 
 genInt :: Gen Int
 genInt = Gen.int (Range.constant 0 (maxBound :: Int))
-
-genWord16 :: Gen Word16
-genWord16 = Gen.word16 (Range.linear 0 (maxBound :: Word16))
-
-publicKey :: IO Key.PublicKey
-publicKey = fst <$> Key.newKeyPair
-
-toByteString :: [Char] -> ByteString
-toByteString = Hash.getHash . Hash.sha256 . B8.pack

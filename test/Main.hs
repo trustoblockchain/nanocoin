@@ -1,3 +1,6 @@
+
+module Main where
+
 import System.IO (BufferMode(..), hSetBuffering, stdout, stderr)
 
 import Protolude
@@ -12,9 +15,6 @@ main = do
   hSetBuffering stdout LineBuffering
   hSetBuffering stderr LineBuffering
 
-  _results <- sequence [
-      Serialization.tests
-    ]
+  results <- sequence [ Serialization.tests ]
 
-  Control.Monad.unless (and _results) $
-     System.Exit.exitFailure
+  unless (and results) $ exitFailure
