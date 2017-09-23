@@ -44,7 +44,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.Serialize as S
 import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
+import Data.Text.Encoding as T
 
 import Crypto.Hash.MerkleTree
 
