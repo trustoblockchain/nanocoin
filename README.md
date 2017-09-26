@@ -1,3 +1,5 @@
+[![CircleCI](https://circleci.com/gh/tdietert/nanocoin.svg?style=svg)](https://circleci.com/gh/tdietert/nanocoin)
+
 Nanocoin
 =========
 
