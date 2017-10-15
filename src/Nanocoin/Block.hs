@@ -49,6 +49,7 @@ import Data.Text.Encoding as T
 import Crypto.Hash.MerkleTree
 
 import Address
+import Time (Timestamp, now)
 import Nanocoin.Ledger
 import Nanocoin.Transaction (Transaction)
 
@@ -58,7 +59,6 @@ import qualified Nanocoin.Transaction as T
 import qualified Nanocoin.Ledger as Ledger
 
 type Index      = Int
-type Timestamp  = Integer
 type Blockchain = [Block]
 
 data BlockHeader = BlockHeader
@@ -73,6 +73,7 @@ data Block = Block
   , header       :: BlockHeader   -- ^ Block header
   , transactions :: [Transaction] -- ^ List of Transactions
   , signature    :: ByteString    -- ^ Block signature
+  , timestamp    :: Timestamp     -- ^ POSIX timestamp
   } deriving (Eq, Show, Generic, S.Serialize)
 
 genesisBlock :: Key.KeyPair -> IO Block
@@ -80,10 +81,11 @@ genesisBlock (pubKey, privKey) = do
     signature' <- liftIO $
       Key.sign privKey (S.encode genesisBlockHeader)
     return Block
-      { index     = 0
-      , header    = genesisBlockHeader
+      { index        = 0
+      , header       = genesisBlockHeader
       , transactions = []
-      , signature = S.encode signature'
+      , signature    = S.encode signature'
+      , timestamp    = 0
       }
   where
     genesisBlockHeader = BlockHeader
@@ -235,6 +237,9 @@ mineBlock prevBlock keys@(pubKey,privKey) txs' = do
     let blockTxs = txs' ++ [rewardTx]
     let blockHeader = mkBlockHeader blockTxs
 
+    -- Get time of block creation
+    ts <- liftIO Time.now
+
     -- Sign the serialized block header
     signature' <- liftIO $
       Key.sign privKey (S.encode blockHeader)
@@ -243,6 +248,7 @@ mineBlock prevBlock keys@(pubKey,privKey) txs' = do
       , header       = blockHeader
       , transactions = blockTxs
       , signature    = S.encode signature'
+      , timestamp    = ts
       }
   where
     index'      = index prevBlock + 1
@@ -256,9 +262,6 @@ mineBlock prevBlock keys@(pubKey,privKey) txs' = do
                      , merkleRoot   = mtHash (mkMerkleTree txHashes)
                      , nonce        = 0
                      }
-
-    now :: IO Integer
-    now = round `fmap` getPOSIXTime
 
 proofOfWork
   :: Int         -- ^ Difficulty measured by block index
@@ -291,6 +294,9 @@ validateProofOfWork block =
 calcReward :: Int -> Int
 calcReward = (*) 100 . calcDifficulty
 
+now :: IO Integer
+now = round <$> getPOSIXTime
+
 -------------------------------------------------------------------------------
 -- Serialization
 -------------------------------------------------------------------------------
@@ -320,9 +326,10 @@ instance ToJSON BlockHeader where
            ]
 
 instance ToJSON Block where
-  toJSON (Block i bh txs s) =
+  toJSON (Block i bh txs s ts) =
     object [ "index"        .= i
            , "header"       .= toJSON bh
            , "transactions" .= toJSON txs
            , "signature"    .= Hash.encode64 s
+           , "timestamp"    .= ts
            ]

@@ -28,7 +28,8 @@ library
                      Address,
                      Hash,
                      Key,
-                     Logger
+                     Logger,
+                     Time
 
   build-depends:
     base              >= 4.6    && <5.0,

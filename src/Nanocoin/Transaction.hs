@@ -36,6 +36,7 @@ import qualified Data.Serialize as S
 
 import Address (Address, rawAddress, deriveAddress)
 import Hash (Hash)
+import Time (Timestamp, now)
 import Nanocoin.Ledger (Ledger)
 
 import qualified Hash
@@ -61,6 +62,7 @@ data TransactionHeader
 data Transaction = Transaction
   { header    :: TransactionHeader
   , signature :: ByteString
+  , timestamp :: Timestamp
   } deriving (Eq, Show, Generic, S.Serialize)
 
 hashTransaction :: Transaction -> ByteString
@@ -79,7 +81,8 @@ transaction
   -> IO Transaction
 transaction privKey txHdr = do
   txSig <- Key.sign privKey $ S.encode txHdr
-  pure $ Transaction txHdr $ S.encode txSig
+  ts <- Time.now
+  pure $ Transaction txHdr (S.encode txSig) ts
 
 transferTransaction
   :: Key.KeyPair -- ^ Key pair of transfer issuer
@@ -153,7 +156,7 @@ applyTransaction
   :: Ledger
   -> Transaction
   -> ApplyM Ledger
-applyTransaction ledger tx@(Transaction hdr sig) = do
+applyTransaction ledger tx@(Transaction hdr sig ts) = do
 
     -- Verify Transaction Signature
     case verifyTxSignature ledger tx of
@@ -225,7 +228,8 @@ instance ToJSON Reward where
            ]
 
 instance ToJSON Transaction where
-  toJSON (Transaction hdr sig) =
+  toJSON (Transaction hdr sig ts) =
     object [ "header"    .= toJSON hdr
            , "signature" .= Hash.encode64 sig
+           , "timestamp" .= ts
            ]
