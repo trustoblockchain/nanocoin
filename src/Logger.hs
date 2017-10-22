@@ -5,6 +5,7 @@ module Logger (
 
   mkLogger,
   runLogger,
+  defaultLog,
 
   logInfo,
   logWarning,
@@ -18,12 +19,20 @@ import qualified System.Logger as Logger
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Reader
 
+instance MonadLogger IO where
+  log lvl f = do
+    logger <- new defSettings
+    Logger.log logger lvl f
+
 instance MonadIO m => MonadLogger (ReaderT Logger m) where
   log lvl f = do
     logger <- ask
     Logger.log logger lvl f
 
 runLogger = flip runReaderT
+
+defaultLog :: MonadLogger m => Level -> (Msg -> Msg) -> m ()
+defaultLog = System.Logger.Class.log
 
 mkLogger :: MonadIO m => Maybe FilePath -> m Logger
 mkLogger mfp =

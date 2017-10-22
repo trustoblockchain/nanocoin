@@ -17,7 +17,7 @@ import System.Console.Haskeline hiding (defaultPrefs, catch)
 import Logger
 import Address (Address, mkAddress)
 
-import Nanocoin.Network.Node (NodeState)
+import Nanocoin.Network.Node (NodeT, NodeState, NodeConfig, runNodeT)
 import qualified Nanocoin.Ledger as L
 import qualified Nanocoin.MemPool as MP
 import qualified Nanocoin.Network.Node as Node
@@ -39,12 +39,17 @@ data CLI
   | Command Cmd
   deriving (Show)
 
-cli :: NodeState -> Logger -> IO ()
-cli nodeState logger = runInputT defaultSettings cliLoop
+type ConsoleM m a = InputT (NodeT m) a
+
+cli :: NodeState -> NodeConfig -> IO ()
+cli nodeState nodeConfig =
+    runNodeT nodeState nodeConfig $
+      runInputT defaultSettings cliLoop
   where
     parserPrefs = defaultPrefs
       { prefShowHelpOnEmpty = True }
 
+    cliLoop :: ConsoleM IO ()
     cliLoop = do
       minput <- getInputLine "nanocoin> "
       case minput of
@@ -56,8 +61,7 @@ cli nodeState logger = runInputT defaultSettings cliLoop
           case mCmdOrQuery of
             Nothing -> cliLoop
             Just cmdOrQuery -> do
-              liftIO $ runLogger logger $
-                handleCLI nodeState cmdOrQuery
+              lift $ handleCLI cmdOrQuery
               cliLoop
 
 cliParser :: Parser CLI
@@ -101,11 +105,10 @@ handleParseResult_ pr =
     pure Nothing
 
 handleCLI
-  :: (MonadIO m, MonadLogger m)
-  => NodeState
-  -> CLI
-  -> m ()
-handleCLI nodeState cli =
+  :: (MonadIO m, MonadLogger m, MonadException m)
+  => CLI
+  -> NodeT m ()
+handleCLI cli =
 
   case cli of
 
@@ -114,41 +117,46 @@ handleCLI nodeState cli =
       case query of
 
         QueryAddress -> do
-          let nodeAddr = Node.getNodeAddress nodeState
-          putText $ show nodeAddr
+          nodeAddr <- Node.getNodeAddress
+          logInfo nodeAddr
 
         QueryBlocks  -> do
-          blocks <- Node.getBlockChain nodeState
-          mapM_ print blocks
+          blocks <- Node.getBlockChain
+          mapM_ logInfo blocks
 
         QueryMemPool -> do
-          mempool <-  Node.getMemPool nodeState
+          mempool <-  Node.getMemPool
           let mempool' = MP.unMemPool mempool
           if null mempool'
             then putText "Mempool is empty"
             else myZipWithM_ [1..] mempool' $ \n tx ->
-              putText $ show n <> ") " <> show tx
+              logInfo $ (show n :: Text) <> ") " <> show tx
 
         QueryLedger  -> do
-          ledger <- Node.getLedger nodeState
+          ledger <- Node.getLedger
           let ledger' = Map.toList $ L.unLedger ledger
           if null ledger'
             then putText "Ledger is empty"
             else  forM_ ledger' $ \(addr,bal) ->
-              putText $ show addr <> " : " <> show bal
+              logInfo (mconcat [ show addr," : ", show bal ] :: Text)
+
 
     Command cmd ->
 
       case cmd of
 
         CmdMineBlock        -> do
-          eBlock <- Node.mineBlock nodeState
+          eBlock <- Node.mineBlock
           case eBlock of
-            Left err    -> logError ("Failed to mine block: " <> show err :: Text)
-            Right block -> putText "Successfully mined block: " >> print block
+            Left err    -> logError
+              ("Failed to mine block: " <> show err :: Text)
+            Right block -> do
+              logInfo "Successfully mined block: "
+              logInfo block
 
         CmdTransfer amnt to -> do
-          tx <- Node.issueTransfer nodeState to amnt
-          putText "Issued Transfer: " >> print tx
+          tx <- Node.issueTransfer to amnt
+          logInfo "Issued Transfer: "
+          logInfo tx
 
 myZipWithM_ xs ys f = zipWithM_ f xs ys

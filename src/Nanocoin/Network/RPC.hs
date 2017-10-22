@@ -5,7 +5,7 @@ module Nanocoin.Network.RPC (
 
 import Protolude hiding (get, intercalate, print, putText)
 
-import Data.Aeson hiding (json)
+import Data.Aeson hiding (json, json')
 import Data.Text (intercalate)
 import Web.Scotty
 
@@ -16,7 +16,7 @@ import Logger
 import Address
 import qualified Address
 
-import Nanocoin.Network.Node
+import Nanocoin.Network.Node as Node
 import Nanocoin.Network.Peer
 
 import qualified Key
@@ -31,11 +31,22 @@ import qualified Nanocoin.Network.Message as Msg
 -- RPC (HTTP) Server
 -------------------------------------------------------------------------------
 
--- | Starts an RPC server for interaction via HTTP
-rpcServer :: NodeState -> Logger -> IO ()
-rpcServer nodeState logger = do
+runNodeT'
+  :: NodeState
+  -> NodeConfig
+  -> NodeT IO a
+  -> ActionM a
+runNodeT' nodeState nodeConfig = liftIO . runNodeT nodeState nodeConfig
 
-  let (Peer hostName p2pPort rpcPort) = nodeConfig nodeState
+-- | Starts an RPC server for interaction via HTTP
+rpcServer :: Logger -> NodeState -> NodeConfig -> IO ()
+rpcServer logger nodeState nodeConfig = do
+
+  let runNodeActionM = runNodeT' nodeState nodeConfig
+
+  (Peer hostName p2pPort rpcPort) <-
+    liftIO $ runNodeT nodeState nodeConfig $
+      gets Node.nodeConfig
 
   scotty rpcPort $ do
 
@@ -46,23 +57,23 @@ rpcServer nodeState logger = do
     --------------------------------------------------
 
     get "/address" $
-      json $ getNodeAddress nodeState
+      json =<< runNodeActionM getNodeAddress
 
     get "/blocks" $
-      queryNodeState nodeState getBlockChain
+      json =<< runNodeActionM getBlockChain
 
     get "/mempool" $
-      queryNodeState nodeState getMemPool
+      json =<< runNodeActionM getMemPool
 
     get "/ledger" $
-      queryNodeState nodeState getLedger
+      json =<< runNodeActionM getLedger
 
     --------------------------------------------------
     -- Commands
     --------------------------------------------------
 
     get "/mineBlock" $ do
-      eBlock <- runLogger logger $ mineBlock nodeState
+      eBlock <- runNodeActionM mineBlock
       case eBlock of
         Left err -> text $ show err
         Right block -> json block
@@ -73,11 +84,4 @@ rpcServer nodeState logger = do
       case mkAddress (encodeUtf8 toAddr') of
         Left err -> text $ toSL err
         Right toAddr -> json =<<
-          issueTransfer nodeState toAddr amount
-
-queryNodeState
-  :: ToJSON a
-  => NodeState
-  -> (NodeState -> IO a)
-  -> ActionM ()
-queryNodeState nodeState f = json =<< liftIO (f nodeState)
+          runNodeActionM (issueTransfer toAddr amount)

@@ -1,8 +1,14 @@
 {-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE StandaloneDeriving #-}
 
 module Nanocoin.Network.Node (
   NodeState(..),
+  NodeConfig(..),
+  NodeT,
+  runNodeT,
 
+  initNodeConfig,
   initNodeState,
 
   getNodeAddress,
@@ -28,6 +34,11 @@ module Nanocoin.Network.Node (
 import Protolude hiding (print, putText)
 import Logger
 import qualified System.Logger as Logger
+
+import Control.Distributed.Process
+import Control.Distributed.Process.MonadBaseControl
+
+import System.Console.Haskeline.MonadException (MonadException(..))
 
 import Control.Concurrent.MVar (MVar)
 import Data.Aeson (ToJSON(..))
@@ -56,15 +67,61 @@ data NodeStateError
   | InternalError Text
   deriving (Show)
 
+-- Read-only Node config (context)
+data NodeConfig = NodeConfig
+  { host    :: Peer.HostName
+  , p2pPort :: Peer.P2PPort
+  , rpcPort :: Peer.RPCPort
+  , keys    :: Key.KeyPair
+  }
+
 data NodeState = NodeState
-  { nodeConfig   :: Peer.Peer
+  { nodeConfig   :: Peer.Peer -- XXX REMOVE (NodeConfig)
   , nodeChain    :: MVar Blockchain
-  , nodeKeys     :: Key.KeyPair
+  , nodeKeys     :: Key.KeyPair -- XXX REMOVE (NodeConfig)
   , nodeSender   :: Msg.MsgSender
   , nodeReceiver :: Msg.MsgReceiver
   , nodeLedger   :: MVar Ledger.Ledger
   , nodeMemPool  :: MVar MemPool
   }
+
+type NodeT m = StateT NodeState (ReaderT NodeConfig m)
+
+instance MonadException m => MonadException (NodeT m) where
+  controlIO = controlIO
+
+runNodeT :: MonadIO m => NodeState -> NodeConfig -> NodeT m a -> m a
+runNodeT nodeState nodeConfig =
+  flip runReaderT nodeConfig .
+    flip evalStateT nodeState
+
+-- Be able to log inside NodeT m a
+instance MonadLogger m => MonadLogger (ReaderT NodeConfig m) where
+  log lvl f = lift $ defaultLog lvl f
+
+instance MonadLogger m => MonadLogger (StateT NodeState m) where
+  log lvl f = lift $ defaultLog lvl f
+
+-------------------------------------------------------------------------------
+-- Node initialization
+-------------------------------------------------------------------------------
+
+initNodeConfig
+  :: Peer.HostName      -- Host name to spawn Node on
+  -> Peer.P2PPort       -- Port to listen to P2P Msgs on
+  -> Peer.RPCPort       -- Port to run RPC server on
+  -> Maybe Key.KeyPair  -- Node account keypair
+  -> IO NodeConfig
+initNodeConfig hn pport rport mkeys = do
+  nodeKeys <- case mkeys of
+    Nothing   -> Key.newKeyPair
+    Just keys -> pure keys
+  pure NodeConfig
+    { host    = hn
+    , p2pPort = pport
+    , rpcPort = rport
+    , keys    = nodeKeys
+    }
 
 initNodeState
   :: Peer.Peer
@@ -93,55 +150,56 @@ initNodeState self genesisBlock keys = do
 
 modifyNodeState_
   :: MonadIO m
-  => NodeState             -- ^ NodeState
-  -> (NodeState -> MVar a) -- ^ NodeState field
+  => (NodeState -> MVar a) -- ^ NodeState field
   -> (a -> IO a)           -- ^ Modifying function
-  -> m ()
-modifyNodeState_ nodeState f = liftIO . modifyMVar_ (f nodeState)
+  -> NodeT m ()
+modifyNodeState_ field f =
+  liftIO . flip modifyMVar_ f =<< fmap field get
 
 modifyBlockChain_
   :: MonadIO m
-  => NodeState
-  -> (Blockchain -> Block.Blockchain)
-  -> m ()
-modifyBlockChain_ nodeState f = modifyNodeState_ nodeState nodeChain (pure . f)
+  => (Blockchain -> Block.Blockchain)
+  -> NodeT m ()
+modifyBlockChain_ f =
+  modifyNodeState_ nodeChain (pure . f)
 
 -- | Warning: Unsafe replace chain. Use 'setBlockChain' to safely update chain
-setBlockChain :: MonadIO m => NodeState -> Blockchain -> m ()
-setBlockChain nodeState chain = modifyBlockChain_ nodeState (const chain)
+setBlockChain
+  :: MonadIO m
+  => Blockchain
+  -> NodeT m ()
+setBlockChain chain = modifyBlockChain_ (const chain)
 
 applyBlock
   :: (MonadIO m, MonadLogger m)
-  => NodeState
+  => Block
   -> Block
-  -> Block
-  -> m ()
-applyBlock nodeState prevBlock  block = do
-  ledger <- getLedger nodeState
+  -> NodeT m ()
+applyBlock prevBlock block = do
+  ledger <- getLedger
   case Block.validateAndApplyBlock ledger prevBlock block of
     Left err -> logError err
     Right (ledger', itxs)
       | null itxs -> do
           logInfo "applyBlock: Block is valid. Applying block..."
           -- If no invalid transactions, add block to chain
-          modifyBlockChain_ nodeState (block:)
+          modifyBlockChain_ (block:)
           -- Remove stale, invalid transactions
-          purgeMemPool nodeState
+          purgeMemPool
           -- Remove transactions in block from memPool
           let blockTxs = Block.transactions block
-          modifyMemPool_ nodeState $ MP.removeTransactions blockTxs
+          modifyMemPool_ $ MP.removeTransactions blockTxs
           -- Update ledger to new ledger state
-          setLedger nodeState ledger'
+          setLedger ledger'
       | otherwise -> logWarning $ ("applyBlock:\n" <>) $
           T.unlines $ map ((<>) "\t" . show) itxs
 
 mineBlock
   :: (MonadIO m, MonadLogger m)
-  => NodeState
-  -> m (Either NodeStateError Block)
-mineBlock nodeState = do
+  => NodeT m (Either NodeStateError Block)
+mineBlock = do
   -- Attempt to mine block
-  mPrevBlock <- getLatestBlock nodeState
+  mPrevBlock <- getLatestBlock
   case mPrevBlock of
     Nothing -> pure $ Left NoGenesisBlock
     Just prevBlock -> do
@@ -149,19 +207,19 @@ mineBlock nodeState = do
 
       -- Validate and discard invalid transactions
       logInfo "mineBlock: Discarding Invalid Transactions..."
-      invalidTxErrs <- purgeMemPool nodeState
+      invalidTxErrs <- purgeMemPool
       mapM_ logWarning invalidTxErrs
-      validTxs <- MP.unMemPool <$> getMemPool nodeState
+      validTxs <- MP.unMemPool <$> getMemPool
 
       -- Attempt to mine block with the valid transactions
       logInfo "mineblock: Constructing new block..."
 
-      let keys = nodeKeys nodeState
-      ledger <- getLedger nodeState
+      nodeKeys <- asks keys
+      ledger <- getLedger
 
       if not (null validTxs)
         then do
-          block <- Block.mineBlock prevBlock keys validTxs
+          block <- Block.mineBlock prevBlock nodeKeys validTxs
           case Block.validateAndApplyBlock ledger prevBlock block of
             Left err -> pure $ Left $ InternalError (show err)
             Right (_, invalidTxErrs')
@@ -169,7 +227,7 @@ mineBlock nodeState = do
                   let blockHashText = decodeUtf8 (Block.hashBlock block)
                   logInfo $ "Generated block with hash:\n\t" <> blockHashText
                   -- Broadcast block message to network
-                  let p2pSender = nodeSender nodeState
+                  p2pSender <- gets nodeSender
                   liftIO $ p2pSender (Msg.BlockMsg block)
                   pure $ Right block
               | otherwise -> panic $ -- This shouldn't happen, fail hard
@@ -181,69 +239,68 @@ mineBlock nodeState = do
 
 issueTransfer
   :: MonadIO m
-  => NodeState
-  -> Address
+  => Address
   -> Int
-  -> m Transaction
-issueTransfer nodeState toAddr amount = do
-  let keys = nodeKeys nodeState
-  tx <- liftIO $ Tx.transferTransaction keys toAddr amount
-  let p2pSender = nodeSender nodeState
+  -> NodeT m Transaction
+issueTransfer toAddr amount = do
+  nodeKeys <- asks keys
+  tx <- liftIO $ Tx.transferTransaction nodeKeys toAddr amount
+  p2pSender <- gets nodeSender
   liftIO . p2pSender $ Msg.TransactionMsg tx
   pure tx
 
-setLedger :: (MonadIO m, MonadLogger m) => NodeState -> Ledger.Ledger -> m ()
-setLedger nodeState ledger = do
+setLedger
+  :: (MonadIO m, MonadLogger m)
+  => Ledger.Ledger
+  -> NodeT m ()
+setLedger ledger = do
   logInfo "setLedger: Updating Ledger..."
-  modifyNodeState_ nodeState nodeLedger $ \_ -> pure ledger
+  modifyNodeState_ nodeLedger $ const $ pure ledger
 
 modifyMemPool_
   :: MonadIO m
-  => NodeState
-  -> (MemPool -> MemPool)
-  -> m ()
-modifyMemPool_ nodeState f =
-  modifyNodeState_ nodeState nodeMemPool (pure . f)
+  => (MemPool -> MemPool)
+  -> NodeT m ()
+modifyMemPool_ f =
+  modifyNodeState_ nodeMemPool (pure . f)
 
 -- | Removes stale transactions, returning them
 purgeMemPool
   :: MonadIO m
-  => NodeState
-  -> m [Tx.InvalidTx]
-purgeMemPool nodeState = do
-  ledger <- getLedger nodeState
-  txs <- MP.unMemPool <$> getMemPool nodeState
+  => NodeT m [Tx.InvalidTx]
+purgeMemPool = do
+  ledger <- getLedger
+  txs <- MP.unMemPool <$> getMemPool
   let (ledger', invalidTxErrs) = Tx.applyTransactions ledger txs
   let invalidTxs = map (\(Tx.InvalidTx tx _) -> tx) invalidTxErrs
-  modifyMemPool_ nodeState $ MP.removeTransactions invalidTxs
+  modifyMemPool_ $ MP.removeTransactions invalidTxs
   return invalidTxErrs
 
 resetMemPool
   :: (MonadIO m, MonadLogger m)
-  => NodeState
-  -> m ()
-resetMemPool nodeState = do
+  => NodeT m ()
+resetMemPool = do
   logInfo "resetMemPool: Resetting memPool..."
-  modifyMemPool_ nodeState (const mempty)
+  modifyMemPool_ (const mempty)
 
 -------------------------------------------------------------------------------
 -- NodeState Querying
 -------------------------------------------------------------------------------
 
-getNodeAddress :: NodeState -> Address
-getNodeAddress = Address.deriveAddress . fst . nodeKeys
+getNodeAddress :: MonadIO m => NodeT m Address
+getNodeAddress = Address.deriveAddress . fst <$> asks keys
 
-getBlockChain :: MonadIO m => NodeState -> m Blockchain
-getBlockChain = liftIO . readMVar . nodeChain
+getBlockChain :: MonadIO m => NodeT m Blockchain
+getBlockChain = readMVar' =<< fmap nodeChain get
 
-getLatestBlock :: MonadIO m => NodeState -> m (Maybe Block)
-getLatestBlock = fmap head . getBlockChain
+getLatestBlock :: MonadIO m => NodeT m (Maybe Block)
+getLatestBlock = head <$> getBlockChain
 
-getLedger :: MonadIO m => NodeState -> m Ledger.Ledger
-getLedger = readMVar' . nodeLedger
+getLedger :: MonadIO m => NodeT m Ledger.Ledger
+getLedger = readMVar' =<< fmap nodeLedger get
 
-getMemPool :: MonadIO m => NodeState -> m MemPool
-getMemPool = readMVar' . nodeMemPool
+getMemPool :: MonadIO m => NodeT m MemPool
+getMemPool = readMVar' =<< fmap nodeMemPool get
 
 -------------------------------------------------------------------------------
 -- Helpers

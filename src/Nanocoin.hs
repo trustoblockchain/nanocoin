@@ -45,18 +45,20 @@ initNode rpcPort mKeysPath logger = do
       Left err   -> die $ show err
       Right gkeys -> B.genesisBlock gkeys
 
-  -- Initialize NodeState
-  nodeState <- Node.initNodeState peer genesisBlock keys
+  -- Initialize NodeState & NodeConfig
+  nodeState  <- Node.initNodeState peer genesisBlock keys
+  -- XXX remove defaults, get from config file
+  nodeConfig <- Node.initNodeConfig "localhost" 8001 rpcPort (Just keys)
 
   -- Fork P2P server
-  forkIO $ P2P.p2p nodeState logger
+  forkIO $ P2P.p2p nodeState nodeConfig
   -- Join network by querying latest block
   joinNetwork $ Node.nodeSender nodeState
 
-  forkIO $ RPC.rpcServer nodeState logger
+  forkIO $ RPC.rpcServer logger nodeState nodeConfig
 
   -- Run cmd line interface
-  CLI.cli nodeState logger
+  CLI.cli nodeState nodeConfig
 
 -- | Query the network for the latest block
 joinNetwork :: Msg.MsgSender -> IO ()
