@@ -1,11 +1,16 @@
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Nanocoin.Network.Node (
-  NodeState(..),
+  NodeEnv(..),
   NodeConfig(..),
   NodeT,
+  NodeProcessM,
   runNodeT,
 
   initNodeConfig,
@@ -29,26 +34,36 @@ module Nanocoin.Network.Node (
   modifyMemPool_,
   purgeMemPool,
 
+  getPeers,
+  addPeer,
+  removePeer,
+
 ) where
 
-import Protolude hiding (print, putText)
+import Protolude hiding (log)
 import Logger
-import qualified System.Logger as Logger
 
+import Control.Monad.Trans
+import Control.Monad.Trans.Control
+
+import Control.Monad.Base
 import Control.Distributed.Process
-import Control.Distributed.Process.MonadBaseControl
+import Control.Distributed.Process.Lifted
+import Control.Distributed.Process.Lifted.Class
 
 import System.Console.Haskeline.MonadException (MonadException(..))
 
 import Control.Concurrent.MVar (MVar)
 import Data.Aeson (ToJSON(..))
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 import qualified Data.Text as T
 
 import Address (Address)
 import Nanocoin.Block (Block, Blockchain)
 import Nanocoin.Transaction (Transaction)
 import Nanocoin.MemPool (MemPool)
+import Nanocoin.Network.Peer (Peer, Peers)
 
 import qualified Address
 import qualified Nanocoin.Block as Block
@@ -58,6 +73,7 @@ import qualified Nanocoin.MemPool as MP
 import qualified Nanocoin.Network.Message as Msg
 import qualified Nanocoin.Network.Multicast as M
 import qualified Nanocoin.Network.Peer as Peer
+import qualified Nanocoin.Network.Utils as Utils
 
 import qualified Key
 
@@ -67,49 +83,66 @@ data NodeStateError
   | InternalError Text
   deriving (Show)
 
--- Read-only Node config (context)
 data NodeConfig = NodeConfig
-  { host    :: Peer.HostName
-  , p2pPort :: Peer.P2PPort
-  , rpcPort :: Peer.RPCPort
+  { host    :: Utils.HostName
+  , p2pPort :: Utils.P2PPort
+  , rpcPort :: Utils.RPCPort
   , keys    :: Key.KeyPair
   }
 
 data NodeState = NodeState
-  { nodeConfig   :: Peer.Peer -- XXX REMOVE (NodeConfig)
-  , nodeChain    :: MVar Blockchain
-  , nodeKeys     :: Key.KeyPair -- XXX REMOVE (NodeConfig)
-  , nodeSender   :: Msg.MsgSender
-  , nodeReceiver :: Msg.MsgReceiver
+  { nodeChain    :: MVar Blockchain
+  , nodePeers    :: MVar Peers
   , nodeLedger   :: MVar Ledger.Ledger
   , nodeMemPool  :: MVar MemPool
   }
 
-type NodeT m = StateT NodeState (ReaderT NodeConfig m)
+data NodeEnv = NodeEnv
+  { nodeConfig :: NodeConfig
+  , nodeState  :: NodeState
+  }
 
-instance MonadException m => MonadException (NodeT m) where
-  controlIO = controlIO
+newtype NodeT m a = NodeT { unNodeT :: ReaderT NodeEnv m a }
+  deriving (Functor, Applicative, Monad, MonadTrans, MonadIO, MonadReader NodeEnv, MonadException)
 
-runNodeT :: MonadIO m => NodeState -> NodeConfig -> NodeT m a -> m a
-runNodeT nodeState nodeConfig =
-  flip runReaderT nodeConfig .
-    flip evalStateT nodeState
+runNodeT :: NodeEnv -> NodeT m a -> m a
+runNodeT nodeEnv = flip runReaderT nodeEnv . unNodeT
 
--- Be able to log inside NodeT m a
-instance MonadLogger m => MonadLogger (ReaderT NodeConfig m) where
-  log lvl f = lift $ defaultLog lvl f
+-------------------------------------------------------------------------------
 
-instance MonadLogger m => MonadLogger (StateT NodeState m) where
-  log lvl f = lift $ defaultLog lvl f
+deriving instance MonadBase IO m => MonadBase IO (NodeT m)
+
+instance MonadTransControl NodeT where
+  type StT NodeT a = StT (ReaderT NodeEnv) a
+  liftWith = defaultLiftWith NodeT unNodeT
+  restoreT = defaultRestoreT NodeT
+
+instance MonadBaseControl IO m => MonadBaseControl IO (NodeT m) where
+  type StM (NodeT m) a = ComposeSt NodeT m a
+  liftBaseWith = defaultLiftBaseWith
+  restoreM     = defaultRestoreM
+
+instance MonadProcess m => MonadProcess (NodeT m) where
+  liftP = NodeT . liftP
+
+instance MonadProcessBase m => MonadProcessBase (NodeT m) where
+  type StMP (NodeT m) a = ComposeStP NodeT m a
+  liftBaseWithP = defaultLiftBaseWithP
+  restoreMP = defaultRestoreMP
+
+instance MonadLogger m => MonadLogger (NodeT m) where
+  log lvl f = lift $ log lvl f
+
+type NodeProcessM a = NodeT (LoggerT Process) a
 
 -------------------------------------------------------------------------------
 -- Node initialization
 -------------------------------------------------------------------------------
 
 initNodeConfig
-  :: Peer.HostName      -- Host name to spawn Node on
-  -> Peer.P2PPort       -- Port to listen to P2P Msgs on
-  -> Peer.RPCPort       -- Port to run RPC server on
+  :: Utils.HostName      -- Host name to spawn Node on
+  -> Utils.P2PPort       -- Port to listen to P2P Msgs on
+  -> Utils.RPCPort       -- Port to run RPC server on
   -> Maybe Key.KeyPair  -- Node account keypair
   -> IO NodeConfig
 initNodeConfig hn pport rport mkeys = do
@@ -124,24 +157,18 @@ initNodeConfig hn pport rport mkeys = do
     }
 
 initNodeState
-  :: Peer.Peer
-  -> Block
-  -> Key.KeyPair
+  :: Block
   -> IO NodeState
-initNodeState self genesisBlock keys = do
-  let (Peer.Peer hn p2pPort _) = self
-  chainMV  <- newMVar [genesisBlock]
-  (receiver, sender) <- M.initMulticast hn p2pPort 65536
-  ledgerMV <- newMVar mempty
+initNodeState genesisBlock = do
+  chainMV   <- newMVar [genesisBlock]
+  peersMV   <- newMVar mempty
+  ledgerMV  <- newMVar mempty
   memPoolMV <- newMVar mempty
   return NodeState
-    { nodeConfig   = self
-    , nodeChain    = chainMV
-    , nodeKeys     = keys
-    , nodeSender   = sender
-    , nodeReceiver = receiver
-    , nodeLedger   = ledgerMV
-    , nodeMemPool  = memPoolMV
+    { nodeChain   = chainMV
+    , nodePeers   = peersMV
+    , nodeLedger  = ledgerMV
+    , nodeMemPool = memPoolMV
     }
 
 -------------------------------------------------------------------------------
@@ -154,7 +181,8 @@ modifyNodeState_
   -> (a -> IO a)           -- ^ Modifying function
   -> NodeT m ()
 modifyNodeState_ field f =
-  liftIO . flip modifyMVar_ f =<< fmap field get
+  liftIO . flip modifyMVar_ f =<<
+    fmap field (asks nodeState)
 
 modifyBlockChain_
   :: MonadIO m
@@ -163,12 +191,12 @@ modifyBlockChain_
 modifyBlockChain_ f =
   modifyNodeState_ nodeChain (pure . f)
 
--- | Warning: Unsafe replace chain. Use 'setBlockChain' to safely update chain
 setBlockChain
   :: MonadIO m
   => Blockchain
   -> NodeT m ()
-setBlockChain chain = modifyBlockChain_ (const chain)
+setBlockChain chain =
+  modifyBlockChain_ (const chain)
 
 applyBlock
   :: (MonadIO m, MonadLogger m)
@@ -178,7 +206,7 @@ applyBlock
 applyBlock prevBlock block = do
   ledger <- getLedger
   case Block.validateAndApplyBlock ledger prevBlock block of
-    Left err -> logError err
+    Left err -> lift $ logError err
     Right (ledger', itxs)
       | null itxs -> do
           logInfo "applyBlock: Block is valid. Applying block..."
@@ -214,7 +242,7 @@ mineBlock = do
       -- Attempt to mine block with the valid transactions
       logInfo "mineblock: Constructing new block..."
 
-      nodeKeys <- asks keys
+      nodeKeys <- getNodeKeys
       ledger <- getLedger
 
       if not (null validTxs)
@@ -226,9 +254,12 @@ mineBlock = do
               | null invalidTxErrs' -> do
                   let blockHashText = decodeUtf8 (Block.hashBlock block)
                   logInfo $ "Generated block with hash:\n\t" <> blockHashText
+
+                  -- XXX REPLACE WITH nsendPeers
                   -- Broadcast block message to network
-                  p2pSender <- gets nodeSender
-                  liftIO $ p2pSender (Msg.BlockMsg block)
+                  -- p2pSender <- gets nodeSender
+                  -- liftIO $ p2pSender (Msg.BlockMsg block)
+
                   pure $ Right block
               | otherwise -> panic $ -- This shouldn't happen, fail hard
                   T.intercalate "\n\t *" $
@@ -243,10 +274,13 @@ issueTransfer
   -> Int
   -> NodeT m Transaction
 issueTransfer toAddr amount = do
-  nodeKeys <- asks keys
+  nodeKeys <- getNodeKeys
   tx <- liftIO $ Tx.transferTransaction nodeKeys toAddr amount
-  p2pSender <- gets nodeSender
-  liftIO . p2pSender $ Msg.TransactionMsg tx
+
+  -- XXX send transaction msg with nsendPeers
+  -- p2pSender <- gets nodeSender
+  -- liftIO . p2pSender $ Msg.TransactionMsg tx
+
   pure tx
 
 setLedger
@@ -276,6 +310,7 @@ purgeMemPool = do
   modifyMemPool_ $ MP.removeTransactions invalidTxs
   return invalidTxErrs
 
+-- | Reset the mempool such that it no longer contains any transactions
 resetMemPool
   :: (MonadIO m, MonadLogger m)
   => NodeT m ()
@@ -283,24 +318,50 @@ resetMemPool = do
   logInfo "resetMemPool: Resetting memPool..."
   modifyMemPool_ (const mempty)
 
+addPeer
+  :: MonadIO m
+  => Peer
+  -> NodeT m ()
+addPeer peer =
+  modifyNodeState_ nodePeers (pure . Set.insert peer)
+
+removePeer
+  :: MonadIO m
+  => Peer
+  -> NodeT m ()
+removePeer peer =
+  modifyNodeState_ nodePeers (pure . Set.delete peer)
+
 -------------------------------------------------------------------------------
 -- NodeState Querying
 -------------------------------------------------------------------------------
 
-getNodeAddress :: MonadIO m => NodeT m Address
-getNodeAddress = Address.deriveAddress . fst <$> asks keys
+getNodeConfig :: Monad m => NodeT m NodeConfig
+getNodeConfig = asks nodeConfig
+
+getNodeState :: Monad m => NodeT m NodeState
+getNodeState = asks nodeState
+
+getNodeAddress :: Monad m => NodeT m Address
+getNodeAddress = Address.deriveAddress . fst . keys <$> getNodeConfig
 
 getBlockChain :: MonadIO m => NodeT m Blockchain
-getBlockChain = readMVar' =<< fmap nodeChain get
+getBlockChain = readMVar' =<< fmap nodeChain getNodeState
 
 getLatestBlock :: MonadIO m => NodeT m (Maybe Block)
 getLatestBlock = head <$> getBlockChain
 
 getLedger :: MonadIO m => NodeT m Ledger.Ledger
-getLedger = readMVar' =<< fmap nodeLedger get
+getLedger = readMVar' =<< fmap nodeLedger getNodeState
 
 getMemPool :: MonadIO m => NodeT m MemPool
-getMemPool = readMVar' =<< fmap nodeMemPool get
+getMemPool = readMVar' =<< fmap nodeMemPool getNodeState
+
+getPeers :: MonadIO m  => NodeT m Peers
+getPeers = readMVar' =<< fmap nodePeers getNodeState
+
+getNodeKeys :: MonadIO m => NodeT m Key.KeyPair
+getNodeKeys = keys <$> getNodeConfig
 
 -------------------------------------------------------------------------------
 -- Helpers

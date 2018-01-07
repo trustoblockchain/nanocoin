@@ -17,16 +17,18 @@ import System.Console.Haskeline hiding (defaultPrefs, catch)
 import Logger
 import Address (Address, mkAddress)
 
-import Nanocoin.Network.Node (NodeT, NodeState, NodeConfig, runNodeT)
+import Nanocoin.Network.Node (NodeT, NodeEnv, runNodeT)
 import qualified Nanocoin.Ledger as L
 import qualified Nanocoin.MemPool as MP
 import qualified Nanocoin.Network.Node as Node
+import qualified Nanocoin.Network.Peer as Peer
 
 data Query
   = QueryAddress
   | QueryBlocks
   | QueryMemPool
   | QueryLedger
+  | QueryPeers
   deriving (Show)
 
 data Cmd
@@ -39,17 +41,18 @@ data CLI
   | Command Cmd
   deriving (Show)
 
-type ConsoleM m a = InputT (NodeT m) a
+type ConsoleT m a = InputT (NodeT (LoggerT m)) a
 
-cli :: NodeState -> NodeConfig -> IO ()
-cli nodeState nodeConfig =
-    runNodeT nodeState nodeConfig $
+cli :: Logger -> NodeEnv -> IO ()
+cli logger nodeEnv =
+  runLoggerT logger $
+    runNodeT nodeEnv $
       runInputT defaultSettings cliLoop
   where
     parserPrefs = defaultPrefs
       { prefShowHelpOnEmpty = True }
 
-    cliLoop :: ConsoleM IO ()
+    cliLoop :: ConsoleT IO ()
     cliLoop = do
       minput <- getInputLine "nanocoin> "
       case minput of
@@ -81,6 +84,8 @@ cliParser = subparser $ mconcat
           progDesc "Query the node's transaction pool"
       , command "ledger"  $ info (pure QueryLedger) $
           progDesc "Query the node's ledger"
+      , command "peers"  $ info (pure QueryPeers) $
+          progDesc "Query the node's known peers"
       ]
 
     cmdParser = subparser $ mconcat
@@ -140,6 +145,10 @@ handleCLI cli =
             else  forM_ ledger' $ \(addr,bal) ->
               logInfo (mconcat [ show addr," : ", show bal ] :: Text)
 
+        QueryPeers -> do
+          peers <- Node.getPeers
+          forM_ peers $ \(Peer.Peer pid) ->
+            logInfo pid
 
     Command cmd ->
 

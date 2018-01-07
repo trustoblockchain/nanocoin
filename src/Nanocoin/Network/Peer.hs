@@ -5,46 +5,21 @@
 -- module Nanocoin.Network.Utils
 module Nanocoin.Network.Peer (
   Peer(..),
-  mkPeer,
-
-  HostName,
-  P2PPort,
-  RPCPort,
+  Peers,
 ) where
 
 import Protolude
 
-import Control.Arrow ((&&&))
 import Data.Aeson (ToJSON(..))
-import Data.List (nub, unzip)
+import Data.Binary (Binary)
 import qualified Data.Serialize as S
 
-import Network.Socket (HostName, PortNumber)
-import Nanocoin.Network.Multicast
+import Control.Distributed.Process (ProcessId)
+import Control.Distributed.Process.Serializable
 
-type RPCPort = Int
-type P2PPort = PortNumber
+import Nanocoin.Network.Utils
 
-instance ToJSON PortNumber where
-  toJSON = toJSON . (show :: PortNumber -> Text)
+type Peers = Set Peer
 
-instance S.Serialize PortNumber where
-  put = S.putWord16be . fromIntegral
-  get = fromIntegral <$> S.getWord16be
-
--- XXX Change to
--- data Peer = Peer
---   { processId :: ProcessId
---   , ...
---   }
-data Peer = Peer
-  { hostName :: HostName
-  , p2pPort  :: P2PPort
-  , rpcPort  :: RPCPort
-  } deriving (Eq, Show, Generic, ToJSON, S.Serialize)
-
-defP2PPort :: P2PPort
-defP2PPort = 8001
-
-mkPeer :: RPCPort -> Peer
-mkPeer = Peer defMulticastHostName defP2PPort
+newtype Peer = Peer { pid :: ProcessId }
+  deriving (Show, Eq, Ord, Generic, Binary, Typeable, Serializable)

@@ -31,49 +31,47 @@ import qualified Nanocoin.Network.Message as Msg
 -- RPC (HTTP) Server
 -------------------------------------------------------------------------------
 
-runNodeT'
-  :: NodeState
-  -> NodeConfig
-  -> NodeT IO a
+runNodeActionM
+  :: Logger
+  -> NodeEnv
+  -> NodeT (LoggerT IO) a
   -> ActionM a
-runNodeT' nodeState nodeConfig = liftIO . runNodeT nodeState nodeConfig
+runNodeActionM logger nodeEnv =
+  liftIO . runLoggerT logger . runNodeT nodeEnv
 
 -- | Starts an RPC server for interaction via HTTP
-rpcServer :: Logger -> NodeState -> NodeConfig -> IO ()
-rpcServer logger nodeState nodeConfig = do
+rpcServer :: Logger -> NodeEnv -> IO ()
+rpcServer logger nodeEnv = do
 
-  let runNodeActionM = runNodeT' nodeState nodeConfig
+  (NodeConfig hostName p2pPort rpcPort keys) <-
+    liftIO $ nodeConfig <$> runNodeT nodeEnv ask
 
-  (Peer hostName p2pPort rpcPort) <-
-    liftIO $ runNodeT nodeState nodeConfig $
-      gets Node.nodeConfig
+  let runNodeActionM' = runNodeActionM logger nodeEnv
 
   scotty rpcPort $ do
-
-    defaultHandler $ logError' logger . toS
 
     --------------------------------------------------
     -- Queries
     --------------------------------------------------
 
     get "/address" $
-      json =<< runNodeActionM getNodeAddress
+      json =<< runNodeActionM' getNodeAddress
 
     get "/blocks" $
-      json =<< runNodeActionM getBlockChain
+      json =<< runNodeActionM' getBlockChain
 
     get "/mempool" $
-      json =<< runNodeActionM getMemPool
+      json =<< runNodeActionM' getMemPool
 
     get "/ledger" $
-      json =<< runNodeActionM getLedger
+      json =<< runNodeActionM' getLedger
 
     --------------------------------------------------
     -- Commands
     --------------------------------------------------
 
     get "/mineBlock" $ do
-      eBlock <- runNodeActionM mineBlock
+      eBlock <- runNodeActionM' mineBlock
       case eBlock of
         Left err -> text $ show err
         Right block -> json block
@@ -84,4 +82,4 @@ rpcServer logger nodeState nodeConfig = do
       case mkAddress (encodeUtf8 toAddr') of
         Left err -> text $ toSL err
         Right toAddr -> json =<<
-          runNodeActionM (issueTransfer toAddr amount)
+          runNodeActionM' (issueTransfer toAddr amount)

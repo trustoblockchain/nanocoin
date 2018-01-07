@@ -3,8 +3,6 @@
 
 module Nanocoin.Network.Message (
   Msg(..),
-  MsgSender,
-  MsgReceiver,
 ) where
 
 import Protolude hiding (msg)
@@ -21,6 +19,3 @@ data Msg
   | BlockMsg Block
   | TransactionMsg Transaction
   deriving (Eq, Show, Generic, S.Serialize)
-
-type MsgSender = M.Sender Msg
-type MsgReceiver = M.Receiver Msg
