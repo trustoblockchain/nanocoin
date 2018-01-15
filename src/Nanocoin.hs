@@ -8,6 +8,7 @@ module Nanocoin (
 
 import Protolude hiding (get, put)
 
+import Control.Concurrent.Chan
 import Control.Distributed.Process.Lifted (NodeId(..))
 
 import qualified Data.Set as Set
@@ -62,11 +63,24 @@ initNode rpcPort p2pPort mKeysPath logger = do
   node2Id <- Utils.mkNodeId "127.0.1.1" 8002
   let bootnodes = [node1Id, node2Id]
 
-  -- Fork RPC server
-  forkIO $ RPC.rpcServer logger nodeEnv
+  -- Init chan to send Msgs from
+  -- rpc & console proc to p2p network
+  msgChan <- newChan
 
-  -- Initialize P2P server
-  P2P.p2p logger nodeEnv bootnodes
+  -- Fork RPC server
+  forkIO $
+    RPC.rpcServer
+      logger
+      nodeEnv
+      msgChan
+
+  -- Fork P2P server
+  forkIO $
+    P2P.p2p
+      logger
+      nodeEnv
+      msgChan
+      bootnodes
 
   -- Run cmd line interface
-  -- CLI.cli logger nodeEnv
+  CLI.cli logger nodeEnv msgChan

@@ -33,6 +33,7 @@ module Nanocoin.Block (
 import Protolude
 
 import Control.Monad (fail)
+import Control.Distributed.Process.Serializable
 
 import Data.Aeson
 import Data.Aeson.Types (typeMismatch)
@@ -66,7 +67,7 @@ data BlockHeader = BlockHeader
   , previousHash :: ByteString    -- ^ Previous block hash
   , merkleRoot   :: ByteString    -- ^ Merkle Root of transactions
   , nonce        :: Int64         -- ^ Nonce for Proof-of-Work
-  } deriving (Eq, Show)
+  } deriving (Eq, Show, Generic)
 
 data Block = Block
   { index        :: Index         -- ^ Block height

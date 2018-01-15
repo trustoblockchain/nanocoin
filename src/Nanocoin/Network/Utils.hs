@@ -33,8 +33,9 @@ instance Serialize PortNumber where
 
 mkNodeId :: HostName -> PortNumber -> IO NodeId
 mkNodeId hostname' portNum = do
-  hostname <- resolveHostname hostname'
-  pure $ NodeId $ EndPointAddress $
-    intercalate ":" $ [toS hostname, show portNum, "0"]
-
-resolveHostname = inet_ntoa . hostAddress <=< getHostByName
+    hostname <- resolveHostname hostname'
+    pure $ NodeId $ EndPointAddress $
+      intercalate ":" $ [toS hostname, show portNum, "0"]
+  where
+    resolveHostname =
+      inet_ntoa . hostAddress <=< getHostByName

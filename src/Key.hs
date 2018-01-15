@@ -33,6 +33,8 @@ module Key (
 
 import Protolude
 
+import Control.Monad (fail)
+
 import qualified Crypto.Number.Basic as CNB
 import qualified Crypto.Number.Serialize as CNS
 import qualified Crypto.PubKey.ECC.ECDSA as ECDSA
@@ -116,8 +118,6 @@ dehexPub bs = do
 -- | Oh no, Orphan instances!
 deriving instance Generic ECDSA.Signature
 instance S.Serialize ECDSA.Signature
-
-----------------------------------------------------------------
 
 putPublicKey :: S.Putter ECDSA.PublicKey
 putPublicKey pubKey = do

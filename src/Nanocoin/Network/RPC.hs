@@ -16,6 +16,7 @@ import Logger
 import Address
 import qualified Address
 
+import Nanocoin.Network.Message (Msg(..))
 import Nanocoin.Network.Node as Node
 import Nanocoin.Network.Peer
 
@@ -40,8 +41,12 @@ runNodeActionM logger nodeEnv =
   liftIO . runLoggerT logger . runNodeT nodeEnv
 
 -- | Starts an RPC server for interaction via HTTP
-rpcServer :: Logger -> NodeEnv -> IO ()
-rpcServer logger nodeEnv = do
+rpcServer
+  :: Logger
+  -> NodeEnv
+  -> Chan Msg
+  -> IO ()
+rpcServer logger nodeEnv msgChan = do
 
   (NodeConfig hostName p2pPort rpcPort keys) <-
     liftIO $ nodeConfig <$> runNodeT nodeEnv ask
@@ -74,12 +79,19 @@ rpcServer logger nodeEnv = do
       eBlock <- runNodeActionM' mineBlock
       case eBlock of
         Left err -> text $ show err
-        Right block -> json block
+        Right block -> do
+          let blockMsg = Msg.BlockMsg block
+          liftIO $ writeChan msgChan blockMsg
+          json block
 
     get "/transfer/:toAddr/:amount" $ do
       toAddr' <- param "toAddr"
       amount <- param "amount"
       case mkAddress (encodeUtf8 toAddr') of
         Left err -> text $ toSL err
-        Right toAddr -> json =<<
-          runNodeActionM' (issueTransfer toAddr amount)
+        Right toAddr -> do
+          keys <- runNodeActionM' Node.getNodeKeys
+          tx <- liftIO $ T.transferTransaction keys toAddr amount
+          let txMsg = Msg.TransactionMsg tx
+          liftIO $ writeChan msgChan txMsg
+          json tx

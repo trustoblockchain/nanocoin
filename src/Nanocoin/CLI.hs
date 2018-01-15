@@ -10,18 +10,20 @@ import Prelude (words)
 
 import qualified Data.Map as Map
 
-import Options.Applicative
-
-import System.Console.Haskeline hiding (defaultPrefs, catch)
-
 import Logger
 import Address (Address, mkAddress)
 
+import Nanocoin.Network.Message (Msg)
 import Nanocoin.Network.Node (NodeT, NodeEnv, runNodeT)
 import qualified Nanocoin.Ledger as L
 import qualified Nanocoin.MemPool as MP
+import qualified Nanocoin.Transaction as T
 import qualified Nanocoin.Network.Node as Node
+import qualified Nanocoin.Network.Message as Msg
 import qualified Nanocoin.Network.Peer as Peer
+
+import Options.Applicative
+import System.Console.Haskeline hiding (defaultPrefs, catch)
 
 data Query
   = QueryAddress
@@ -36,15 +38,15 @@ data Cmd
   | CmdTransfer Int Address
   deriving (Show)
 
-data CLI
+data Arg
   = Query Query
   | Command Cmd
   deriving (Show)
 
 type ConsoleT m a = InputT (NodeT (LoggerT m)) a
 
-cli :: Logger -> NodeEnv -> IO ()
-cli logger nodeEnv =
+cli :: Logger -> NodeEnv -> Chan Msg -> IO ()
+cli logger nodeEnv msgChan =
   runLoggerT logger $
     runNodeT nodeEnv $
       runInputT defaultSettings cliLoop
@@ -64,10 +66,10 @@ cli logger nodeEnv =
           case mCmdOrQuery of
             Nothing -> cliLoop
             Just cmdOrQuery -> do
-              lift $ handleCLI cmdOrQuery
+              lift $ handleArg msgChan cmdOrQuery
               cliLoop
 
-cliParser :: Parser CLI
+cliParser :: Parser Arg
 cliParser = subparser $ mconcat
     [ command "query" $ info (Query <$> queryParser) $
         progDesc "Query the node's state"
@@ -104,16 +106,17 @@ cliParser = subparser $ mconcat
 
 -- | Handle a cmd line args parser result, discarding the ExitCode
 -- XXX Is this ok to do? Just make sure no one shells into the repl.
-handleParseResult_ :: ParserResult CLI -> IO (Maybe CLI)
+handleParseResult_ :: ParserResult Arg -> IO (Maybe Arg)
 handleParseResult_ pr =
   fmap Just (handleParseResult pr) `catch` \(e :: ExitCode) ->
     pure Nothing
 
-handleCLI
-  :: (MonadIO m, MonadLogger m, MonadException m)
-  => CLI
+handleArg
+  :: (MonadLogger m, MonadException m)
+  => Chan Msg
+  -> Arg
   -> NodeT m ()
-handleCLI cli =
+handleArg msgChan cli =
 
   case cli of
 
@@ -160,12 +163,15 @@ handleCLI cli =
             Left err    -> logError
               ("Failed to mine block: " <> show err :: Text)
             Right block -> do
-              logInfo "Successfully mined block: "
-              logInfo block
+              logInfoMsg "Broadcasting block to the network:" block
+              let blockMsg = Msg.BlockMsg block
+              liftIO $ writeChan msgChan blockMsg
 
         CmdTransfer amnt to -> do
-          tx <- Node.issueTransfer to amnt
-          logInfo "Issued Transfer: "
-          logInfo tx
+          keys <- Node.getNodeKeys
+          tx <- liftIO $ T.transferTransaction keys to amnt
+          let txMsg = Msg.TransactionMsg tx
+          logInfoMsg "Broadcasting transaction to network:" tx
+          liftIO $ writeChan msgChan txMsg
 
 myZipWithM_ xs ys f = zipWithM_ f xs ys

@@ -17,6 +17,7 @@ import qualified Data.Set as Set
 import Network.Socket (ServiceName)
 import Network.Transport.TCP
 
+import Nanocoin.Network.Message (Msg)
 import Nanocoin.Network.Peer    (Peer(..), Peers)
 import Nanocoin.Network.Service (Service(..))
 import Nanocoin.Network.Utils   (HostName)
@@ -26,9 +27,10 @@ import Logger (Logger, runLoggerT, logWarning, logInfo)
 p2p
   :: Logger
   -> Node.NodeEnv
+  -> Chan Msg
   -> [NodeId]
   -> IO ()
-p2p logger nodeEnv bootnodes = do
+p2p logger nodeEnv msgChan bootnodes = do
 
     let hostname = Node.host $ Node.nodeConfig nodeEnv
     let p2pPort  = Node.p2pPort $ Node.nodeConfig nodeEnv
@@ -41,19 +43,16 @@ p2p logger nodeEnv bootnodes = do
 
         -- Initialize P2P controller process
         forkProcess localNode $
-          runNodeProcessM $ p2pController bootnodes
+          Node.runNodeProcessM logger nodeEnv $
+            p2pController bootnodes
 
-        -- Wait for P2P Controller to boot and discover peers
+        -- Wait for P2P Controller to boot and execute the main process
         runProcess localNode $
-          runNodeProcessM $
+          Node.runNodeProcessM logger nodeEnv $
             waitP2PController $ do
-              forever $ do
-                liftBase $ threadDelay 3000000
-                print =<< Node.getPeers
-
-  where
-    runNodeProcessM =
-      runLoggerT logger . Node.runNodeT nodeEnv
+              -- XXX spawn main proc
+              print =<< Node.getPeers
+              forever $ liftBase $ threadDelay 3000000
 
 --------------------------------------------------------------------------------
 -- P2P Controller Process
@@ -64,8 +63,7 @@ p2pController bootnodes = do
   pid <- getSelfPid
   register (show PeerDiscovery) pid
 
-  -- Discover peers in the network
-  -- Note: This can't go outside of this function (why?)
+  -- Discover bootnode peers in the network
   mapM_ discoverPeer bootnodes
 
   controlP $ \runInProc ->

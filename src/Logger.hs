@@ -16,6 +16,8 @@ module Logger (
   mkLogger,
 
   logInfo,
+  logInfoText,
+  logInfoMsg,
   logWarning,
   logError,
 ) where
@@ -76,6 +78,12 @@ mkLogger mfp =
 
 logInfo :: (MonadLogger m, Show a) => a -> m ()
 logInfo = info . msg . (show :: Show a => a -> Text)
+
+logInfoText :: (MonadLogger m) => Text -> m ()
+logInfoText = info . msg
+
+logInfoMsg :: (MonadLogger m, Show a) => Text -> a -> m ()
+logInfoMsg prefix val = info . msg $ prefix <> "\n  " <> show val
 
 logWarning :: (MonadLogger m, Show a) => a -> m ()
 logWarning = warn . msg . (show :: Show a => a -> Text)
