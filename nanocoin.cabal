@@ -23,6 +23,7 @@ library
                      Nanocoin.Network.Node,
                      Nanocoin.Network.Service,
                      Nanocoin.Network.P2P,
+                     Nanocoin.Network.Cmd,
                      Nanocoin.Network.Peer,
                      Nanocoin.Network.RPC,
                      Nanocoin.Network.Utils,

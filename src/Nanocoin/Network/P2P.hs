@@ -2,7 +2,7 @@
 {-# language FlexibleContexts #-}
 
 module Nanocoin.Network.P2P (
-  p2p,
+  bootstrap,
 ) where
 
 import Protolude
@@ -17,49 +17,58 @@ import qualified Data.Set as Set
 import Network.Socket (ServiceName)
 import Network.Transport.TCP
 
-import Nanocoin.Network.Message (Msg)
+import Nanocoin.Network.Cmd     (Cmd, cmdProc)
+import Nanocoin.Network.Message (Msg, msgProc)
+import Nanocoin.Network.Node    (NodeProcessM)
 import Nanocoin.Network.Peer    (Peer(..), Peers)
 import Nanocoin.Network.Service (Service(..))
 import Nanocoin.Network.Utils   (HostName)
 import qualified Nanocoin.Network.Node as Node
 import Logger (Logger, runLoggerT, logWarning, logInfo)
 
-p2p
+
+-- | Bootstrap the multiprocess architecture, spawing all processes
+bootstrap
   :: Logger
   -> Node.NodeEnv
-  -> Chan Msg
+  -> Chan Cmd
   -> [NodeId]
   -> IO ()
-p2p logger nodeEnv msgChan bootnodes = do
+bootstrap logger nodeEnv cmdChan bootnodes = do
 
-    let hostname = Node.host $ Node.nodeConfig nodeEnv
-    let p2pPort  = Node.p2pPort $ Node.nodeConfig nodeEnv
+  let hostname = Node.host $ Node.nodeConfig nodeEnv
+  let p2pPort  = Node.p2pPort $ Node.nodeConfig nodeEnv
 
-    -- Create a local node to run processes on
-    eLocalNode <- createLocalNode hostname $ show p2pPort
-    case eLocalNode of
-      Left err -> Protolude.die err
-      Right localNode -> do
+  -- Create a local node to run processes on
+  eLocalNode <- createLocalNode hostname $ show p2pPort
+  case eLocalNode of
+    Left err -> Protolude.die err
+    Right localNode -> do
 
-        -- Initialize P2P controller process
-        forkProcess localNode $
-          Node.runNodeProcessM logger nodeEnv $
-            p2pController bootnodes
+      runProcess localNode $ void $
+        Node.runNodeProcessM logger nodeEnv $ do
+          -- Initialize P2P controller process
+          spawnLocal $ p2pControllerProc bootnodes
+      -- Wait for P2P Controller to boot and execute the other processes
+      runProcess localNode $
+        Node.runNodeProcessM logger nodeEnv $ do
+          waitP2PController $ do
+            -- Boot Messaging proc
+            msgingPid <- spawnLocal msgProc
+            register (show Messaging) msgingPid
+            -- Boot Cmd (Relay) proc
+            void $ spawnLocal $ cmdProc cmdChan
 
-        -- Wait for P2P Controller to boot and execute the main process
-        runProcess localNode $
-          Node.runNodeProcessM logger nodeEnv $
-            waitP2PController $ do
-              -- XXX spawn main proc
-              print =<< Node.getPeers
-              forever $ liftBase $ threadDelay 3000000
+          -- Hang forever so as not to kill parent proc
+          forever $ liftBase $
+            threadDelay 3000000
 
 --------------------------------------------------------------------------------
 -- P2P Controller Process
 --------------------------------------------------------------------------------
 
-p2pController :: [NodeId] -> Node.NodeProcessM ()
-p2pController bootnodes = do
+p2pControllerProc :: [NodeId] -> NodeProcessM ()
+p2pControllerProc bootnodes = do
   pid <- getSelfPid
   register (show PeerDiscovery) pid
 
@@ -100,7 +109,7 @@ onPeerReply (WhereIsReply _ mPid) = do
     Nothing -> pure ()
     Just pid -> do
       peers <- Node.getPeers
-      let peer = Peer pid
+      let peer = Peer $ processNodeId pid
       unless (peer `Set.member` peers) $ do
         Node.addPeer peer
         void $ monitor pid
@@ -110,7 +119,7 @@ onMonitorNotif :: ProcessMonitorNotification -> Node.NodeProcessM ()
 onMonitorNotif (ProcessMonitorNotification mref pid _) = do
   unmonitor mref
   peers <- Node.getPeers
-  let peer = Peer pid
+  let peer = Peer $ processNodeId pid
   when (peer `Set.member` peers) $ do
     Node.removePeer peer
 

@@ -37,13 +37,17 @@ module Nanocoin.Network.Node (
 
   getMemPool,
   modifyMemPool_,
+  addTransactionToMemPool,
   purgeMemPool,
 
+  getSelfPeer,
   getPeers,
   addPeer,
   removePeer,
 
   nsendAllPeers,
+  nsendPeer,
+  nsendPeer'
 
 ) where
 
@@ -56,7 +60,7 @@ import Control.Monad.Trans.Control
 import Control.Monad.Base
 import Control.Distributed.Process.Lifted
 import Control.Distributed.Process.Lifted.Class
-import Control.Distributed.Process.Serializable
+import Control.Distributed.Process.Serializable as DPS
 
 import System.Console.Haskeline.MonadException (MonadException(..))
 
@@ -224,6 +228,13 @@ modifyMemPool_
 modifyMemPool_ f =
   modifyNodeState_ nodeMemPool (pure . f)
 
+addTransactionToMemPool
+  :: MonadIO m
+  => Transaction
+  -> NodeT m ()
+addTransactionToMemPool =
+  modifyMemPool_ . MP.addTransaction
+
 -- | Removes stale transactions, returning them
 purgeMemPool
   :: MonadIO m
@@ -265,26 +276,31 @@ removePeer peer =
 applyBlock
   :: (MonadIO m, MonadLogger m)
   => Block
-  -> Block
   -> NodeT m ()
-applyBlock prevBlock block = do
-  ledger <- getLedger
-  case Block.validateAndApplyBlock ledger prevBlock block of
-    Left err -> lift $ logError err
-    Right (ledger', itxs)
-      | null itxs -> do
-          logInfo "applyBlock: Block is valid. Applying block..."
-          -- If no invalid transactions, add block to chain
-          modifyBlockChain_ (block:)
-          -- Remove stale, invalid transactions
-          purgeMemPool
-          -- Remove transactions in block from memPool
-          let blockTxs = Block.transactions block
-          modifyMemPool_ $ MP.removeTransactions blockTxs
-          -- Update ledger to new ledger state
-          setLedger ledger'
-      | otherwise -> logWarning $ ("applyBlock:\n" <>) $
-          T.unlines $ map ((<>) "\t" . show) itxs
+applyBlock block = do
+  mPrevBlock <- getLatestBlock
+  case mPrevBlock of
+    Nothing ->
+      logWarning "applyBlock: Cannot apply block to empty chain."
+    Just prevBlock -> do
+      ledger <- getLedger
+      case Block.validateAndApplyBlock ledger prevBlock block of
+        Left err -> lift $ logError err
+        Right (ledger', itxs)
+          | null itxs -> do
+              logInfo "applyBlock: Block is valid. Applying block..."
+              -- If no invalid transactions, add block to chain
+              modifyBlockChain_ (block:)
+              -- Remove stale, invalid transactions
+              purgeMemPool
+              -- Remove transactions in block from memPool
+              let blockTxs = Block.transactions block
+              modifyMemPool_ $ MP.removeTransactions blockTxs
+              -- Update ledger to new ledger state
+              setLedger ledger'
+          | otherwise ->
+              logWarning $ ("applyBlock:\n" <>) $
+                T.unlines $ map ((<>) "  " . show) itxs
 
 mineBlock
   :: (MonadIO m, MonadLogger m)
@@ -352,6 +368,9 @@ getLedger = readMVar' =<< fmap nodeLedger getNodeState
 getMemPool :: MonadIO m => NodeT m MemPool
 getMemPool = readMVar' =<< fmap nodeMemPool getNodeState
 
+getSelfPeer :: MonadProcess m => NodeT m Peer
+getSelfPeer = Peer <$> getSelfNode
+
 getPeers :: MonadIO m  => NodeT m Peers
 getPeers = readMVar' =<< fmap nodePeers getNodeState
 
@@ -378,8 +397,17 @@ nsendPeer
   -> Service
   -> a
   -> NodeT m ()
-nsendPeer (Peer pid) service msg =
-  nsendRemote (processNodeId pid) (show service) (S.encode msg)
+nsendPeer (Peer nid) service msg =
+  nsendRemote nid (show service) (S.encode msg)
+
+nsendPeer'
+  :: (MonadIO m, MonadProcess m, DPS.Serializable a)
+  => Peer
+  -> Service
+  -> a
+  -> NodeT m ()
+nsendPeer' (Peer nid) service =
+  nsendRemote nid (show service)
 
 -------------------------------------------------------------------------------
 -- Helpers

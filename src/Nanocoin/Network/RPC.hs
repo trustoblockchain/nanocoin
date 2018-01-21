@@ -26,7 +26,7 @@ import qualified Nanocoin.Ledger as L
 import qualified Nanocoin.Block as B
 import qualified Nanocoin.MemPool as MP
 import qualified Nanocoin.Transaction as T
-import qualified Nanocoin.Network.Message as Msg
+import qualified Nanocoin.Network.Cmd as Cmd
 
 -------------------------------------------------------------------------------
 -- RPC (HTTP) Server
@@ -44,9 +44,9 @@ runNodeActionM logger nodeEnv =
 rpcServer
   :: Logger
   -> NodeEnv
-  -> Chan Msg
+  -> Chan Cmd.Cmd
   -> IO ()
-rpcServer logger nodeEnv msgChan = do
+rpcServer logger nodeEnv cmdChan = do
 
   (NodeConfig hostName p2pPort rpcPort keys) <-
     liftIO $ nodeConfig <$> runNodeT nodeEnv ask
@@ -80,8 +80,8 @@ rpcServer logger nodeEnv msgChan = do
       case eBlock of
         Left err -> text $ show err
         Right block -> do
-          let blockMsg = Msg.BlockMsg block
-          liftIO $ writeChan msgChan blockMsg
+          let blockCmd = Cmd.BlockCmd block
+          liftIO $ writeChan cmdChan blockCmd
           json block
 
     get "/transfer/:toAddr/:amount" $ do
@@ -92,6 +92,6 @@ rpcServer logger nodeEnv msgChan = do
         Right toAddr -> do
           keys <- runNodeActionM' Node.getNodeKeys
           tx <- liftIO $ T.transferTransaction keys toAddr amount
-          let txMsg = Msg.TransactionMsg tx
-          liftIO $ writeChan msgChan txMsg
+          let txMsg = Cmd.TransactionCmd tx
+          liftIO $ writeChan cmdChan txMsg
           json tx

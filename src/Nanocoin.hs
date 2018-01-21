@@ -65,22 +65,22 @@ initNode rpcPort p2pPort mKeysPath logger = do
 
   -- Init chan to send Msgs from
   -- rpc & console proc to p2p network
-  msgChan <- newChan
+  cmdChan <- newChan
 
   -- Fork RPC server
   forkIO $
     RPC.rpcServer
       logger
       nodeEnv
-      msgChan
+      cmdChan
 
   -- Fork P2P server
   forkIO $
-    P2P.p2p
+    P2P.bootstrap
       logger
       nodeEnv
-      msgChan
+      cmdChan
       bootnodes
 
   -- Run cmd line interface
-  CLI.cli logger nodeEnv msgChan
+  CLI.cli logger nodeEnv cmdChan

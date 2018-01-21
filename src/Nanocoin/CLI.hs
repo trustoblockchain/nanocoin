@@ -18,6 +18,7 @@ import Nanocoin.Network.Node (NodeT, NodeEnv, runNodeT)
 import qualified Nanocoin.Ledger as L
 import qualified Nanocoin.MemPool as MP
 import qualified Nanocoin.Transaction as T
+import qualified Nanocoin.Network.Cmd as Cmd
 import qualified Nanocoin.Network.Node as Node
 import qualified Nanocoin.Network.Message as Msg
 import qualified Nanocoin.Network.Peer as Peer
@@ -45,8 +46,8 @@ data Arg
 
 type ConsoleT m a = InputT (NodeT (LoggerT m)) a
 
-cli :: Logger -> NodeEnv -> Chan Msg -> IO ()
-cli logger nodeEnv msgChan =
+cli :: Logger -> NodeEnv -> Chan Cmd.Cmd -> IO ()
+cli logger nodeEnv cmdChan =
   runLoggerT logger $
     runNodeT nodeEnv $
       runInputT defaultSettings cliLoop
@@ -66,7 +67,7 @@ cli logger nodeEnv msgChan =
           case mCmdOrQuery of
             Nothing -> cliLoop
             Just cmdOrQuery -> do
-              lift $ handleArg msgChan cmdOrQuery
+              lift $ handleArg cmdChan cmdOrQuery
               cliLoop
 
 cliParser :: Parser Arg
@@ -113,10 +114,10 @@ handleParseResult_ pr =
 
 handleArg
   :: (MonadLogger m, MonadException m)
-  => Chan Msg
+  => Chan Cmd.Cmd
   -> Arg
   -> NodeT m ()
-handleArg msgChan cli =
+handleArg cmdChan cli =
 
   case cli of
 
@@ -164,14 +165,14 @@ handleArg msgChan cli =
               ("Failed to mine block: " <> show err :: Text)
             Right block -> do
               logInfoMsg "Broadcasting block to the network:" block
-              let blockMsg = Msg.BlockMsg block
-              liftIO $ writeChan msgChan blockMsg
+              let blockCmd = Cmd.BlockCmd block
+              liftIO $ writeChan cmdChan blockCmd
 
         CmdTransfer amnt to -> do
           keys <- Node.getNodeKeys
           tx <- liftIO $ T.transferTransaction keys to amnt
-          let txMsg = Msg.TransactionMsg tx
+          let txCmd = Cmd.TransactionCmd tx
           logInfoMsg "Broadcasting transaction to network:" tx
-          liftIO $ writeChan msgChan txMsg
+          liftIO $ writeChan cmdChan txCmd
 
 myZipWithM_ xs ys f = zipWithM_ f xs ys
