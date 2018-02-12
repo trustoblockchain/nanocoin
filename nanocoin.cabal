@@ -18,7 +18,6 @@ library
                      Nanocoin.Transaction,
                      Nanocoin.CLI,
                      
-                     Nanocoin.Network.Multicast,
                      Nanocoin.Network.Message,
                      Nanocoin.Network.Node,
                      Nanocoin.Network.Service,
