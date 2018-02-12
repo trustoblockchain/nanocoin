@@ -382,7 +382,7 @@ getNodeKeys = keys <$> getNodeConfig
 --------------------------------------------------------------------------------
 
 nsendAllPeers
-  :: (MonadIO m, MonadProcess m, S.Serialize a)
+  :: (MonadLogger m, MonadIO m, MonadProcess m, Serializable a)
   => Service
   -> a
   -> NodeT m ()
@@ -392,13 +392,14 @@ nsendAllPeers service msg = do
     nsendPeer peer service msg
 
 nsendPeer
-  :: (MonadIO m, MonadProcess m, S.Serialize a)
+  :: (MonadLogger m, MonadIO m, MonadProcess m, Serializable a)
   => Peer
   -> Service
   -> a
   -> NodeT m ()
-nsendPeer (Peer nid) service msg =
-  nsendRemote nid (show service) (S.encode msg)
+nsendPeer (Peer nid) service msg = do
+  logInfoText $ "Sending message to: " <> show nid <> ":" <> show service
+  nsendRemote nid (show service) msg
 
 nsendPeer'
   :: (MonadIO m, MonadProcess m, DPS.Serializable a)

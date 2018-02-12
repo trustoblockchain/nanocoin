@@ -28,7 +28,7 @@ data Msg
   = QueryBlockMsg Peer Int
   | BlockMsg Peer Block
   | TransactionMsg Transaction
-  deriving (Eq, Show, Generic, Serialize)
+  deriving (Eq, Show, Generic, Typeable, Serialize)
 
 instance Binary Msg where
   put = put . encode
@@ -42,13 +42,12 @@ msgProc :: NodeProcessM ()
 msgProc =
   controlP $ \runInProc ->
     forever $ receiveWait
-      [ match $ runInProc . handleMsg ]
+      [ match $ runInProc . handleMsg
+      ]
 
 handleMsg :: Msg -> NodeProcessM ()
 handleMsg msg = do
-
-  logInfo $ "handleMsg: Received Msg: " <> (show msg :: Text)
-
+  logInfo $ "[handleMsg] Received Msg: " <> (show msg :: Text)
   case msg of
     QueryBlockMsg peer n -> do
       chain <- Node.getBlockChain
@@ -61,7 +60,7 @@ handleMsg msg = do
     BlockMsg peer block -> do
       mPrevBlock <- Node.getLatestBlock
       case mPrevBlock of
-        Nothing -> logInfo "handleMsg: No Genesis block found."
+        Nothing -> logInfo "[handleMsg] No Genesis block found."
         Just prevBlock -> do
           -- Apply block to world state
           Node.applyBlock block
@@ -77,5 +76,5 @@ handleMsg msg = do
       ledger <- Node.getLedger
       -- Verify Signature before adding to MemPool
       case verifyTxSignature ledger tx of
-        Left err -> logError ("handleMsg: " <> show err :: Text)
+        Left err -> logError ("[handleMsg] " <> show err :: Text)
         Right _  -> Node.addTransactionToMemPool tx
