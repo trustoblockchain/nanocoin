@@ -8,10 +8,12 @@ module Nanocoin (
 
 import Protolude hiding (get, put)
 
-import Web.Scotty
-import Logger
-import qualified System.Logger as Logger
+import Control.Concurrent.Chan
+import Control.Distributed.Process.Lifted (NodeId(..))
 
+import qualified Data.Set as Set
+
+import Logger
 import qualified Key
 import qualified Nanocoin.Block as B
 import qualified Nanocoin.CLI as CLI
@@ -22,12 +24,17 @@ import qualified Nanocoin.Network.Node as Node
 import qualified Nanocoin.Network.P2P as P2P
 import qualified Nanocoin.Network.Peer as Peer
 import qualified Nanocoin.Network.RPC as RPC
+import qualified Nanocoin.Network.Utils as Utils
 
 -- | Initializes a node on the network with it's own copy of
 -- the blockchain, and invokes a p2p server and an http server.
-initNode :: Int -> Maybe FilePath -> Logger.Logger -> IO ()
-initNode rpcPort mKeysPath logger = do
-  let peer = Peer.mkPeer rpcPort
+initNode
+  :: Utils.RPCPort
+  -> Utils.P2PPort
+  -> Maybe FilePath
+  -> Logger
+  -> IO ()
+initNode rpcPort p2pPort mKeysPath logger = do
 
   -- Initialize Node Keys
   keys <- case mKeysPath of
@@ -45,19 +52,35 @@ initNode rpcPort mKeysPath logger = do
       Left err   -> die $ show err
       Right gkeys -> B.genesisBlock gkeys
 
-  -- Initialize NodeState
-  nodeState <- Node.initNodeState peer genesisBlock keys
+  -- Initialize NodeState & NodeConfig
+  nodeState  <- Node.initNodeState genesisBlock
+  -- XXX remove hardcoded values, get from config file
+  nodeConfig <- Node.initNodeConfig "127.0.1.1" p2pPort rpcPort (Just keys)
+  let nodeEnv = Node.NodeEnv nodeConfig nodeState
+
+  -- XXX remove hardcoded values, get from config file
+  node1Id <- Utils.mkNodeId "127.0.1.1" 8001
+  node2Id <- Utils.mkNodeId "127.0.1.1" 8002
+  let bootnodes = [node1Id, node2Id]
+
+  -- Init chan to send Msgs from
+  -- rpc & console proc to p2p network
+  cmdChan <- newChan
+
+  -- Fork RPC server
+  forkIO $
+    RPC.rpcServer
+      logger
+      nodeEnv
+      cmdChan
 
   -- Fork P2P server
-  forkIO $ P2P.p2p nodeState logger
-  -- Join network by querying latest block
-  joinNetwork $ Node.nodeSender nodeState
-
-  forkIO $ RPC.rpcServer nodeState logger
+  forkIO $
+    P2P.bootstrap
+      logger
+      nodeEnv
+      cmdChan
+      bootnodes
 
   -- Run cmd line interface
-  CLI.cli nodeState logger
-
--- | Query the network for the latest block
-joinNetwork :: Msg.MsgSender -> IO ()
-joinNetwork nodeSender = nodeSender $ Msg.QueryBlockMsg 1
+  CLI.cli logger nodeEnv cmdChan

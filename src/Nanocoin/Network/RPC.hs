@@ -5,7 +5,7 @@ module Nanocoin.Network.RPC (
 
 import Protolude hiding (get, intercalate, print, putText)
 
-import Data.Aeson hiding (json)
+import Data.Aeson hiding (json, json')
 import Data.Text (intercalate)
 import Web.Scotty
 
@@ -16,7 +16,8 @@ import Logger
 import Address
 import qualified Address
 
-import Nanocoin.Network.Node
+import Nanocoin.Network.Message (Msg(..))
+import Nanocoin.Network.Node as Node
 import Nanocoin.Network.Peer
 
 import qualified Key
@@ -25,59 +26,72 @@ import qualified Nanocoin.Ledger as L
 import qualified Nanocoin.Block as B
 import qualified Nanocoin.MemPool as MP
 import qualified Nanocoin.Transaction as T
-import qualified Nanocoin.Network.Message as Msg
+import qualified Nanocoin.Network.Cmd as Cmd
 
 -------------------------------------------------------------------------------
 -- RPC (HTTP) Server
 -------------------------------------------------------------------------------
 
--- | Starts an RPC server for interaction via HTTP
-rpcServer :: NodeState -> Logger -> IO ()
-rpcServer nodeState logger = do
+runNodeActionM
+  :: Logger
+  -> NodeEnv
+  -> NodeT (LoggerT IO) a
+  -> ActionM a
+runNodeActionM logger nodeEnv =
+  liftIO . runLoggerT logger . runNodeT nodeEnv
 
-  let (Peer hostName p2pPort rpcPort) = nodeConfig nodeState
+-- | Starts an RPC server for interaction via HTTP
+rpcServer
+  :: Logger
+  -> NodeEnv
+  -> Chan Cmd.Cmd
+  -> IO ()
+rpcServer logger nodeEnv cmdChan = do
+
+  (NodeConfig hostName p2pPort rpcPort keys) <-
+    liftIO $ nodeConfig <$> runNodeT nodeEnv ask
+
+  let runNodeActionM' = runNodeActionM logger nodeEnv
 
   scotty rpcPort $ do
-
-    defaultHandler $ logError' logger . toS
 
     --------------------------------------------------
     -- Queries
     --------------------------------------------------
 
     get "/address" $
-      json $ getNodeAddress nodeState
+      json =<< runNodeActionM' getNodeAddress
 
     get "/blocks" $
-      queryNodeState nodeState getBlockChain
+      json =<< runNodeActionM' getBlockChain
 
     get "/mempool" $
-      queryNodeState nodeState getMemPool
+      json =<< runNodeActionM' getMemPool
 
     get "/ledger" $
-      queryNodeState nodeState getLedger
+      json =<< runNodeActionM' getLedger
 
     --------------------------------------------------
     -- Commands
     --------------------------------------------------
 
     get "/mineBlock" $ do
-      eBlock <- runLogger logger $ mineBlock nodeState
+      eBlock <- runNodeActionM' mineBlock
       case eBlock of
         Left err -> text $ show err
-        Right block -> json block
+        Right block -> do
+          let blockCmd = Cmd.BlockCmd block
+          liftIO $ writeChan cmdChan blockCmd
+          json block
 
     get "/transfer/:toAddr/:amount" $ do
       toAddr' <- param "toAddr"
       amount <- param "amount"
       case mkAddress (encodeUtf8 toAddr') of
         Left err -> text $ toSL err
-        Right toAddr -> json =<<
-          issueTransfer nodeState toAddr amount
-
-queryNodeState
-  :: ToJSON a
-  => NodeState
-  -> (NodeState -> IO a)
-  -> ActionM ()
-queryNodeState nodeState f = json =<< liftIO (f nodeState)
+        Right toAddr -> do
+          keys <- runNodeActionM' Node.getNodeKeys
+          tx <- liftIO $ T.transferTransaction keys toAddr amount
+          let txMsg = Cmd.TransactionCmd tx
+          liftIO $ writeChan cmdChan txMsg
+          json tx
