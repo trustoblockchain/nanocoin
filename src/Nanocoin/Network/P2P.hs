@@ -79,6 +79,9 @@ p2pControllerProc bootnodes = do
     forever $ receiveWait
       [ match $ runInProc . onPeerReply
       , match $ runInProc . onMonitorNotif
+      , match $ runInProc . onPeerQuery
+      , match $ runInProc . onPeers
+      , match $ runInProc . onMonitorNotif
       ]
 
 waitP2PController :: Node.NodeProcessM () -> Node.NodeProcessM ()
@@ -94,7 +97,7 @@ waitP2PController proc = do
       proc
 
 --------------------------------------------------------------------------------
--- P2P Message Handlers
+-- P2P Messages & Handlers
 --------------------------------------------------------------------------------
 
 isPeerReply :: WhereIsReply -> Bool
@@ -113,6 +116,27 @@ onPeerReply (WhereIsReply _ mPid) = do
       unless (peer `Set.member` peers) $ do
         Node.addPeer peer
         void $ monitor pid
+        -- Ask new peer for their peers
+        selfPid <- getSelfPid
+        Node.nsendPeer' peer PeerDiscovery selfPid
+
+onPeerQuery :: ProcessId -> Node.NodeProcessM ()
+onPeerQuery pid = do
+  say "Received peer query..."
+  peers <- Node.getPeers
+  let peer = Peer $ processNodeId pid
+  unless (peer `Set.member` peers) $ do
+    Node.addPeer peer
+    void $ monitor pid
+  Node.nsendPeer' peer PeerDiscovery peers
+
+onPeers :: Peers -> Node.NodeProcessM ()
+onPeers peers = do
+  say "Received list of peers..."
+  peers <- Node.getPeers
+  forM_ (Set.toList peers) $ \peer@(Peer nid) ->
+    unless (peer `Set.member` peers) $ do
+      whereisRemoteAsync nid (show PeerDiscovery)
 
 -- | Remove a peer from the peers list and unmonitor the process
 onMonitorNotif :: ProcessMonitorNotification -> Node.NodeProcessM ()
