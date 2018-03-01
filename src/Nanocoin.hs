@@ -55,13 +55,16 @@ initNode rpcPort p2pPort mKeysPath logger = do
   -- Initialize NodeState & NodeConfig
   nodeState  <- Node.initNodeState genesisBlock
   -- XXX remove hardcoded values, get from config file
-  nodeConfig <- Node.initNodeConfig "127.0.1.1" p2pPort rpcPort (Just keys)
+  let theHost = "127.0.1.1"
+  nodeConfig <- Node.initNodeConfig theHost p2pPort rpcPort (Just keys)
   let nodeEnv = Node.NodeEnv nodeConfig nodeState
 
   -- XXX remove hardcoded values, get from config file
   node1Id <- Utils.mkNodeId "127.0.1.1" 8001
   node2Id <- Utils.mkNodeId "127.0.1.1" 8002
-  let bootnodes = [node1Id, node2Id]
+  -- add current node to the boot nodes
+  thisNodeId <- Utils.mkNodeId theHost p2pPort
+  let bootnodes = [node1Id, node2Id, thisNodeId]
 
   -- Init chan to send Msgs from
   -- rpc & console proc to p2p network
