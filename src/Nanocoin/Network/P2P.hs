@@ -131,10 +131,10 @@ onPeerQuery pid = do
   Node.nsendPeer' peer PeerDiscovery peers
 
 onPeers :: Peers -> Node.NodeProcessM ()
-onPeers peers = do
+onPeers newpeers = do
   say "Received list of peers..."
   peers <- Node.getPeers
-  forM_ (Set.toList peers) $ \peer@(Peer nid) ->
+  forM_ (Set.toList newpeers) $ \peer@(Peer nid) ->
     unless (peer `Set.member` peers) $ do
       whereisRemoteAsync nid (show PeerDiscovery)
 
